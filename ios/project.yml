@@ -1,0 +1,67 @@
+name: BridgeTracker
+options:
+  bundleIdPrefix: com.example.bridgetracker
+  deploymentTarget:
+    iOS: "17.0"
+  xcodeVersion: "15.0"
+  createIntermediateGroups: true
+
+configs:
+  Debug: debug
+  Release: release
+
+settings:
+  base:
+    DEVELOPMENT_TEAM: ""           # set your Apple Developer Team ID
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    GENERATE_INFOPLIST_FILE: YES
+    ENABLE_PREVIEWS: YES
+    CODE_SIGN_STYLE: Automatic
+    # API base URL. Override per-configuration if you like.
+    API_BASE_URL: "http://localhost:3001"
+
+targets:
+  BridgeTracker:
+    type: application
+    platform: iOS
+    sources:
+      - path: BridgeTracker
+      - path: Shared
+    resources:
+      - path: BridgeTracker/Assets.xcassets
+    dependencies:
+      - target: BridgeWidgetExtension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.bridgetracker
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_CFBundleDisplayName: "Brickell Bridge"
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UIStatusBarStyle: UIStatusBarStyleDefault
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_NSSupportsLiveActivities: YES
+        INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates: YES
+        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "Shows your location relative to the Brickell Avenue Bridge."
+        INFOPLIST_KEY_NSUserActivityTypes: "BridgeStatusIntent"
+        INFOPLIST_KEY_CFBundleURLTypes_Generation: NO
+        INFOPLIST_KEY_API_BASE_URL: "$(API_BASE_URL)"
+    preBuildScripts:
+      - name: SwiftLint (optional)
+        script: |
+          if command -v swiftlint >/dev/null 2>&1; then swiftlint; fi
+        basedOnDependencyAnalysis: false
+
+  BridgeWidgetExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: BridgeWidgetExtension
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.bridgetracker.widget
+        INFOPLIST_FILE: BridgeWidgetExtension/Info.plist
+        SKIP_INSTALL: YES
+        CODE_SIGN_STYLE: Automatic

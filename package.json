@@ -1,0 +1,29 @@
+{
+  "name": "bridge-tracker",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Tracks Brickell Avenue Bridge (Miami) status from FL511",
+  "workspaces": [
+    "packages/shared",
+    "packages/poller",
+    "packages/api",
+    "packages/frontend"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "bundle": "npm run bundle --workspace=@bridge-tracker/poller && npm run bundle --workspace=@bridge-tracker/api",
+    "dev": "node scripts/dev.mjs",
+    "deploy:frontend:local": "FLOCI=1 bash scripts/deploy-frontend.sh",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4",
+    "@types/node": "^22.9.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

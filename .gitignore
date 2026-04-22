@@ -1,0 +1,25 @@
+node_modules/
+dist/
+build/
+*.log
+.env
+.env.local
+.DS_Store
+
+# Terraform
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+infra/.terraform.lock.hcl
+infra/tfplan
+
+# Lambda bundles
+packages/poller/bundle/
+packages/api/bundle/
+packages/*/bundle.zip
+
+# Floci data
+.floci-data/
+
+# Vite
+packages/frontend/dist/

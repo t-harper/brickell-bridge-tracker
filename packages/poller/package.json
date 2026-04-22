@@ -1,0 +1,23 @@
+{
+  "name": "@bridge-tracker/poller",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/handler.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "bundle": "node ../../scripts/bundle-lambda.mjs poller"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.682.0",
+    "@aws-sdk/client-s3": "^3.682.0",
+    "@aws-sdk/client-secrets-manager": "^3.682.0",
+    "@aws-sdk/lib-dynamodb": "^3.682.0",
+    "@bridge-tracker/shared": "*"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145"
+  }
+}

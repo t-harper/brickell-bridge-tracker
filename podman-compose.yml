@@ -1,0 +1,20 @@
+services:
+  floci:
+    image: docker.io/hectorvent/floci:latest
+    container_name: bridge-tracker-floci
+    ports:
+      - "4566:4566"
+    environment:
+      - FLOCI_HOSTNAME=floci
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - floci-data:/app/data
+      - ${XDG_RUNTIME_DIR:-/run/user/1000}/podman/podman.sock:/var/run/docker.sock:Z
+
+volumes:
+  floci-data:
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:4566/_floci/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
