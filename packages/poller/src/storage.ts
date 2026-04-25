@@ -77,36 +77,46 @@ export async function reconcile(
   incoming: FL511Bridge,
   now: Date = new Date(),
 ): Promise<ReconcileResult> {
-  const pKey = pollKey(now);
-  await appendJsonl(pKey, {
-    ts: incoming.observedAt,
-    status: incoming.status,
-    metadata: incoming.metadata,
-    alerts: incoming.alerts,
-    raw: incoming.raw,
-  });
-  const rawSnapshotPointer = `s3://${BUCKET()}/${pKey}`;
-
   const prev = await readCurrent();
   let statusChangedAt = prev?.statusChangedAt ?? incoming.observedAt;
   let eventWritten: BridgeEvent | null = null;
 
-  if (prev && prev.status !== incoming.status) {
-    const prevSince = new Date(prev.statusChangedAt).getTime();
+  // Only archive a raw poll snapshot when the status flipped (or this is the
+  // first poll ever). Routine polls account for >99% of writes; skipping them
+  // cuts our S3 PUT+GET bill by the same factor. The status-change events
+  // in events/*.jsonl are what /stats and /history actually read.
+  const isStatusChange = prev != null && prev.status !== incoming.status;
+  const isFirstPoll = !prev;
+  let rawSnapshotPointer: string | null = prev?.rawSnapshotPointer ?? null;
+
+  if (isStatusChange || isFirstPoll) {
+    const pKey = pollKey(now);
+    await appendJsonl(pKey, {
+      ts: incoming.observedAt,
+      status: incoming.status,
+      metadata: incoming.metadata,
+      alerts: incoming.alerts,
+      raw: incoming.raw,
+    });
+    rawSnapshotPointer = `s3://${BUCKET()}/${pKey}`;
+  }
+
+  if (isStatusChange) {
+    const prevSince = new Date(prev!.statusChangedAt).getTime();
     const nowMs = new Date(incoming.observedAt).getTime();
     const durationSec = Number.isFinite(prevSince)
       ? Math.max(0, Math.round((nowMs - prevSince) / 1000))
       : null;
     const ev: BridgeEvent = {
       ts: incoming.observedAt,
-      from: prev.status,
+      from: prev!.status,
       to: incoming.status,
       durationOfPrevStateSec: durationSec,
     };
     await appendJsonl(eventKey(now), ev);
     statusChangedAt = incoming.observedAt;
     eventWritten = ev;
-  } else if (!prev) {
+  } else if (isFirstPoll) {
     statusChangedAt = incoming.observedAt;
   }
 

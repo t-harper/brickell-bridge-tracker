@@ -1,0 +1,9 @@
+env           = "prod"
+aws_region    = "us-east-1"
+floci         = false
+cors_origin   = "*"
+# Optional: alternate domain to serve via CloudFront. Leave empty to disable
+# CloudFront + ACM (in which case the API is reachable via API Gateway and
+# the SPA via the S3 website endpoint). Copy this file to prod.tfvars and
+# fill in your domain — prod.tfvars is gitignored.
+bridge_domain = ""

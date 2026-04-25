@@ -47,6 +47,21 @@ export interface BridgeEvent {
 }
 
 export * from "./devices.js";
+export * from "./analytics.js";
+export * from "./aggregate.js";
+
+export interface BridgeStatsBreakdown {
+  avgGapBetweenOpensSec: number | null;
+  medianGapBetweenOpensSec: number | null;
+  longestGapBetweenOpensSec: number | null;
+  pctTimeUp: number;
+  opensToday: number;
+  busiestHourLocal: number | null;
+  quietestHourLocal: number | null;
+  opensByHourLocal: number[];
+  opensByDay: { date: string; opens: number }[];
+  heatmap: number[][];
+}
 
 export interface BridgeStats {
   windowDays: number;
@@ -55,4 +70,11 @@ export interface BridgeStats {
   longestOpenDurationSec: number | null;
   currentStatus: BridgeStatus;
   currentStatusSinceSec: number;
+  isOpen: boolean;
+  currentOpenDurationSec: number | null;
+  predictedNextOpenAt: string | null;
+  predictedNextCloseAt: string | null;
+  tz: string;
+  minDurationSec: number;
+  breakdown: BridgeStatsBreakdown;
 }

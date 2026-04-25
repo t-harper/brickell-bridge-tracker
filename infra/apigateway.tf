@@ -39,6 +39,12 @@ resource "aws_apigatewayv2_route" "get_stats" {
   target    = "integrations/${aws_apigatewayv2_integration.api.id}"
 }
 
+resource "aws_apigatewayv2_route" "get_cycles" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "GET /api/bridges/brickell/cycles"
+  target    = "integrations/${aws_apigatewayv2_integration.api.id}"
+}
+
 resource "aws_apigatewayv2_route" "post_device" {
   api_id    = aws_apigatewayv2_api.http.id
   route_key = "POST /api/devices"

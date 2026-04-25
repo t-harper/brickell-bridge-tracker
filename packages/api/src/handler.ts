@@ -1,5 +1,5 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from "aws-lambda";
-import { getCurrent, getHistory, getStats } from "./routes.js";
+import { getCurrent, getCycles, getHistory, getStats } from "./routes.js";
 import { addActivity, deleteDevice, putDevice, removeActivity } from "./devices.js";
 
 const CORS = {
@@ -8,10 +8,26 @@ const CORS = {
   "access-control-allow-headers": "content-type",
 };
 
-function json(status: number, body: unknown): APIGatewayProxyResultV2 {
+const DEFAULT_MIN_DURATION_SEC = 60;
+
+function clampInt(raw: string | undefined, fallback: number, min: number, max: number): number {
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(Math.round(parsed), min), max);
+}
+
+function json(
+  status: number,
+  body: unknown,
+  extraHeaders: Record<string, string> = {},
+): APIGatewayProxyResultV2 {
   return {
     statusCode: status,
-    headers: { "content-type": "application/json", ...CORS },
+    headers: {
+      "content-type": "application/json",
+      ...CORS,
+      ...extraHeaders,
+    },
     body: JSON.stringify(body),
   };
 }
@@ -43,12 +59,27 @@ export const handler = async (
       return json(200, state);
     }
     if (method === "GET" && path === "/api/bridges/brickell/history") {
-      const days = Number(event.queryStringParameters?.days ?? "7");
-      return json(200, { events: await getHistory(days) });
+      const q = event.queryStringParameters ?? {};
+      const days = clampInt(q.days, 7, 1, 90);
+      const minDurationSec = clampInt(q.minDurationSec, 0, 0, 3600);
+      return json(200, { events: await getHistory(days, minDurationSec) });
     }
     if (method === "GET" && path === "/api/bridges/brickell/stats") {
-      const days = Number(event.queryStringParameters?.days ?? "7");
-      return json(200, await getStats(days));
+      const q = event.queryStringParameters ?? {};
+      const days = clampInt(q.days, 7, 1, 90);
+      const minDurationSec = clampInt(q.minDurationSec, DEFAULT_MIN_DURATION_SEC, 0, 3600);
+      return json(200, await getStats(days, minDurationSec), {
+        "cache-control": "max-age=15",
+      });
+    }
+    if (method === "GET" && path === "/api/bridges/brickell/cycles") {
+      const q = event.queryStringParameters ?? {};
+      const days = clampInt(q.days, 7, 1, 90);
+      const limit = clampInt(q.limit, 50, 1, 500);
+      const minDurationSec = clampInt(q.minDurationSec, DEFAULT_MIN_DURATION_SEC, 0, 3600);
+      return json(200, { cycles: await getCycles(days, limit, minDurationSec) }, {
+        "cache-control": "max-age=15",
+      });
     }
     if (method === "GET" && path === "/api/health") {
       return json(200, { ok: true });

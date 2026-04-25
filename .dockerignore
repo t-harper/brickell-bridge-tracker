@@ -1,0 +1,13 @@
+node_modules
+**/node_modules
+**/dist
+**/bundle
+**/bundle.zip
+.floci-data
+.git
+.env
+.env.local
+infra/.terraform
+infra/tfplan
+infra/terraform.tfstate*
+ios

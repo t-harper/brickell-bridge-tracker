@@ -48,12 +48,18 @@ resource "aws_lambda_function" "poller" {
   function_name    = "${local.name_prefix}-poller-${var.env}"
   role             = aws_iam_role.lambda.arn
   runtime          = "nodejs20.x"
+  # Graviton: arm64 is ~20% cheaper per GB-second. Our bundle is pure JS so
+  # there's no native-binary concern.
+  architectures    = ["arm64"]
   handler          = "handler.handler"
   s3_bucket        = aws_s3_object.poller_zip.bucket
   s3_key           = aws_s3_object.poller_zip.key
   source_code_hash = filebase64sha256(local.poller_zip)
-  timeout          = 30
-  memory_size      = 256
+  # 2 polls × ~1s + 1 × 30s sleep + buffer for retries / slow FL511.
+  timeout          = 60
+  # Poller is I/O-bound (fetch FL511 + DDB + S3). 128MB is plenty; halves the
+  # GB-sec bill vs 256MB, which matters because most of the invocation is sleep.
+  memory_size      = 128
 
   environment {
     variables = local.shared_env
@@ -64,6 +70,7 @@ resource "aws_lambda_function" "api" {
   function_name    = "${local.name_prefix}-api-${var.env}"
   role             = aws_iam_role.lambda.arn
   runtime          = "nodejs20.x"
+  architectures    = ["arm64"]
   handler          = "handler.handler"
   s3_bucket        = aws_s3_object.api_zip.bucket
   s3_key           = aws_s3_object.api_zip.key
@@ -74,4 +81,18 @@ resource "aws_lambda_function" "api" {
   environment {
     variables = local.shared_env
   }
+}
+
+# Explicit log groups with 7-day retention so CloudWatch Logs storage doesn't
+# grow forever (Lambda's auto-created groups default to "Never Expire"). Has to
+# come before the first Lambda invocation, or Lambda pre-creates the group and
+# Terraform will fail to claim it — import + retention would be needed then.
+resource "aws_cloudwatch_log_group" "poller" {
+  name              = "/aws/lambda/${aws_lambda_function.poller.function_name}"
+  retention_in_days = 7
+}
+
+resource "aws_cloudwatch_log_group" "api" {
+  name              = "/aws/lambda/${aws_lambda_function.api.function_name}"
+  retention_in_days = 7
 }

@@ -57,6 +57,12 @@ variable "apns_p8_file" {
   default     = ""
 }
 
+variable "bridge_domain" {
+  description = "Alternate domain served by CloudFront (e.g. bridge.example.com). Empty disables CloudFront + ACM."
+  type        = string
+  default     = ""
+}
+
 locals {
   name_prefix     = "bridge-tracker"
   current_table   = "${local.name_prefix}-current-${var.env}"

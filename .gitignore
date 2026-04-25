@@ -12,6 +12,8 @@ infra/*.tfstate
 infra/*.tfstate.*
 infra/.terraform.lock.hcl
 infra/tfplan
+infra/envs/prod.tfvars
+infra/envs/*.local.tfvars
 
 # Lambda bundles
 packages/poller/bundle/
