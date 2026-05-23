@@ -18,9 +18,9 @@
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {
-    "esbuild": "^0.24.0",
+    "esbuild": "^0.28.0",
     "typescript": "^5.6.3",
-    "vitest": "^2.1.4",
+    "vitest": "^4.1.7",
     "@types/node": "^22.9.0"
   },
   "engines": {
