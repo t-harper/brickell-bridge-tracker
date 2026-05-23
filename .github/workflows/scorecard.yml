@@ -7,19 +7,22 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Scorecard requires elevated perms to inspect branch protection, signed
-# commits, dep pinning, etc., and to publish results.
+# Workflow-level perms stay minimal. The scorecard-action webapp verifies
+# that elevated perms are job-scoped (not workflow-global) before signing
+# the published score, so security-events/id-token/actions go on the job.
 permissions:
-  security-events: write
-  id-token: write
   contents: read
-  actions: read
 
 jobs:
   analysis:
     name: Scorecard analysis
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      security-events: write
+      id-token: write
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v6
         with:
