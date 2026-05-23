@@ -24,12 +24,24 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # Compare deps before/after this PR; block on new high/critical CVEs.
+      # Runs first so dep regressions surface even if later steps fail.
+      - name: Dependency review
+        uses: actions/dependency-review-action@v5
+        with:
+          fail-on-severity: high
+
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: 'npm'
 
       - run: npm ci
+
+      # Same gate as deploy.yml — catch CVEs that have surfaced since
+      # main was last audited, even on PRs that don't touch package.json.
+      - name: Audit production dependencies
+        run: npm audit --audit-level=high --omit=dev
 
       # @bridge-tracker/shared exposes types via dist/, which is gitignored —
       # downstream packages can't resolve it until shared is built.

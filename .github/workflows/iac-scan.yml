@@ -1,0 +1,43 @@
+name: IaC Security Scan
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ["infra/**"]
+  push:
+    branches: [main]
+    paths: ["infra/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: read
+
+jobs:
+  checkov:
+    name: Checkov (Terraform)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: infra
+          framework: terraform
+          output_format: sarif
+          output_file_path: checkov.sarif
+          # Soft-fail so the PR isn't blocked by stylistic IaC defaults (no
+          # X-Ray on Lambda, no DLQ, no VPC, etc.) we've consciously skipped
+          # for this single-bridge prototype. Findings still go to the
+          # Security tab for triage.
+          soft_fail: true
+
+      - name: Upload SARIF to Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: checkov.sarif
+          category: checkov

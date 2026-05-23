@@ -1,0 +1,44 @@
+version: 2
+
+# Routine updates are grouped weekly to keep PR noise down. Security updates
+# (CVE-driven) are opened immediately and bypass the schedule and grouping.
+updates:
+  # npm covers all four workspaces via the root manifest.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/New_York
+    open-pull-requests-limit: 5
+    groups:
+      npm-prod-deps:
+        dependency-type: production
+        update-types: [minor, patch]
+      npm-dev-deps:
+        dependency-type: development
+        update-types: [minor, patch]
+    # Surface majors as separate PRs so breaking changes get individual review.
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/New_York
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: terraform
+    directory: "/infra"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/New_York
+    groups:
+      terraform:
+        update-types: [minor, patch]

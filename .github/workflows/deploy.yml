@@ -37,6 +37,12 @@ jobs:
 
       - run: npm ci
 
+      # Block on high/critical CVEs in production deps. Dev deps (vitest,
+      # esbuild, typescript) aren't shipped to Lambda, so excluding them
+      # avoids noise from a pile of build-time-only transitives.
+      - name: Audit production dependencies
+        run: npm audit --audit-level=high --omit=dev
+
       # @bridge-tracker/shared exposes types via dist/, which is gitignored —
       # downstream packages can't resolve it until shared is built.
       - name: Build shared package
