@@ -31,6 +31,11 @@ jobs:
 
       - run: npm ci
 
+      # @bridge-tracker/shared exposes types via dist/, which is gitignored —
+      # downstream packages can't resolve it until shared is built.
+      - name: Build shared package
+        run: npm run build --workspace=@bridge-tracker/shared
+
       - run: npm run typecheck
 
       - run: npm test
