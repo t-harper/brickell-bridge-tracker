@@ -58,13 +58,36 @@ AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_REGION=us-east-1 \
 
 ## Deploy to real AWS
 
+**Automatic** — push to `main` triggers `.github/workflows/deploy.yml`, which:
+typechecks → tests → bundles the Lambdas → builds the frontend →
+`terraform apply` → syncs the SPA to S3 → invalidates CloudFront. PR builds
+run `plan.yml` and post the plan as a comment.
+
+GitHub Actions authenticates via OIDC into two IAM roles:
+- `bridge-tracker-gha-apply` — trusted only from `refs/heads/main`
+- `bridge-tracker-gha-plan`  — trusted only from `pull_request` events
+  (`ReadOnlyAccess` + state bucket + lock table)
+
+Remote state lives in `s3://bridge-tracker-tfstate-831473839640/env:/prod/`
+with locking in DynamoDB table `bridge-tracker-tflock`.
+
+**Manual** (same workflow, from your laptop):
+
 ```sh
 cd infra
-terraform workspace new prod
+terraform init
+terraform workspace select prod
 terraform apply -var-file=envs/prod.tfvars
 ```
 
-`envs/prod.tfvars` has `floci = false` and a real region — same module, no code differences.
+**Local floci dev** — the S3 backend is hardcoded for CI. For floci, init
+against a throwaway local state file:
+
+```sh
+cd infra
+terraform init -backend=false
+terraform apply -var-file=envs/local.tfvars
+```
 
 ## Inspect state
 

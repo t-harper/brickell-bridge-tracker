@@ -6,14 +6,17 @@ build/
 .env.local
 .DS_Store
 
-# Terraform
+# Terraform — state lives in S3 now; ignore the local stragglers + the lock
+# file (which can vary by OS/arch on developer machines).
 infra/.terraform/
 infra/*.tfstate
 infra/*.tfstate.*
+infra/terraform.tfstate.d/
 infra/.terraform.lock.hcl
 infra/tfplan
-infra/envs/prod.tfvars
 infra/envs/*.local.tfvars
+# prod.tfvars values (env name, region, domain) aren't secret — CI needs the
+# file checked in. Anything truly sensitive belongs in SSM/Secrets Manager.
 
 # Lambda bundles
 packages/poller/bundle/

@@ -1,0 +1,90 @@
+name: Plan on PR
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+env:
+  AWS_REGION: us-east-1
+  TF_VERSION: 1.9.0
+  AWS_ROLE_ARN: arn:aws:iam::831473839640:role/bridge-tracker-gha-plan
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+      # Plan needs the freshly-built zips so source_code_hash diffs are accurate.
+      - name: Bundle Lambda artifacts
+        run: npm run bundle
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Terraform init
+        working-directory: infra
+        run: terraform init -no-color
+
+      - name: Select prod workspace
+        working-directory: infra
+        run: terraform workspace select prod
+
+      - name: Terraform plan
+        id: plan
+        working-directory: infra
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          terraform plan -no-color -lock=false -var-file=envs/prod.tfvars 2>&1 | tee plan.txt
+          echo "exitcode=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Post plan as PR comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # GitHub comment max is 65536 chars; reserve some for the wrapper.
+          PLAN=$(head -c 60000 infra/plan.txt)
+          STATUS="${{ steps.plan.outputs.exitcode }}"
+          {
+            echo "## Terraform Plan (\`prod\` workspace)"
+            echo
+            echo "Exit code: \`${STATUS}\` (0 = no changes, 2 = changes planned, 1 = error)"
+            echo
+            echo '```'
+            echo "$PLAN"
+            echo '```'
+          } > comment.md
+          gh pr comment "$PR_NUMBER" --body-file comment.md
+
+      - name: Fail job if plan errored
+        if: steps.plan.outputs.exitcode == '1'
+        run: exit 1

@@ -6,6 +6,17 @@ terraform {
       version = "~> 5.0"
     }
   }
+
+  # Remote state for CI-driven deploys. The workspace name (e.g. "prod") is
+  # appended automatically, so the same backend block serves every workspace.
+  # For local floci dev, init with `-backend=false` (state is throwaway).
+  backend "s3" {
+    bucket         = "bridge-tracker-tfstate-831473839640"
+    key            = "bridge-tracker.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "bridge-tracker-tflock"
+    encrypt        = true
+  }
 }
 
 provider "aws" {

@@ -1,0 +1,82 @@
+name: Deploy to prod
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Serialize deploys against the DynamoDB lock: cancelling mid-flight would
+# leave a stuck lock that the next run can't acquire without manual cleanup.
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  TF_VERSION: 1.9.0
+  AWS_ROLE_ARN: arn:aws:iam::831473839640:role/bridge-tracker-gha-apply
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+      - name: Bundle Lambda artifacts
+        run: npm run bundle
+
+      - name: Build frontend
+        run: npm run build --workspace=@bridge-tracker/frontend
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Terraform init
+        working-directory: infra
+        run: terraform init -no-color
+
+      - name: Select prod workspace
+        working-directory: infra
+        run: terraform workspace select prod
+
+      - name: Terraform apply
+        working-directory: infra
+        run: terraform apply -auto-approve -no-color -var-file=envs/prod.tfvars
+
+      - name: Sync frontend to S3
+        working-directory: infra
+        run: |
+          BUCKET=$(terraform output -raw frontend_bucket)
+          aws s3 sync ../packages/frontend/dist/ "s3://${BUCKET}/" --delete
+
+      - name: Invalidate CloudFront
+        working-directory: infra
+        run: |
+          DIST_ID=$(terraform output -raw cloudfront_distribution_id)
+          aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths '/*'
