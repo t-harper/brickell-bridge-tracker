@@ -65,7 +65,7 @@ describe("history + stats", () => {
       pk: BRIDGE_ID, status: "DOWN",
       statusChangedAt: new Date(Date.now() - 30_000).toISOString(),
       lastPolledAt: today.toISOString(),
-      metadata: {}, nearbyAlerts: [], rawSnapshotPointer: null,
+      metadata: {}, nearbyAlerts: [], rawSnapshotPointer: null, feedLastUpdatedAt: null,
     });
     c._s3.set(key(today),
       [
@@ -92,7 +92,7 @@ describe("history + stats", () => {
       pk: BRIDGE_ID, status: "DOWN",
       statusChangedAt: t(720),
       lastPolledAt: today.toISOString(),
-      metadata: {}, nearbyAlerts: [], rawSnapshotPointer: null,
+      metadata: {}, nearbyAlerts: [], rawSnapshotPointer: null, feedLastUpdatedAt: null,
     });
     c._s3.set(key(today),
       [
@@ -120,7 +120,7 @@ describe("history + stats", () => {
       pk: BRIDGE_ID, status: "UP",
       statusChangedAt: openTs,
       lastPolledAt: today.toISOString(),
-      metadata: {}, nearbyAlerts: [], rawSnapshotPointer: null,
+      metadata: {}, nearbyAlerts: [], rawSnapshotPointer: null, feedLastUpdatedAt: null,
     });
     c._s3.set(key(today),
       JSON.stringify({ ts: openTs, from: "DOWN", to: "UP", durationOfPrevStateSec: 1800 }) + "\n",
@@ -144,6 +144,7 @@ describe("history + stats", () => {
       metadata: {},
       nearbyAlerts: [],
       rawSnapshotPointer: null,
+      feedLastUpdatedAt: null,
     });
     // Place a precomputed file with a stale "isOpen=false" snapshot to confirm
     // the API does NOT trust the precomputed live fields — it patches them.
@@ -195,6 +196,7 @@ describe("history + stats", () => {
       metadata: {},
       nearbyAlerts: [],
       rawSnapshotPointer: null,
+      feedLastUpdatedAt: null,
     });
     c._s3.set(
       key(today),
@@ -218,7 +220,7 @@ describe("history + stats", () => {
       pk: BRIDGE_ID, status: "DOWN",
       statusChangedAt: t(600),
       lastPolledAt: today.toISOString(),
-      metadata: {}, nearbyAlerts: [], rawSnapshotPointer: null,
+      metadata: {}, nearbyAlerts: [], rawSnapshotPointer: null, feedLastUpdatedAt: null,
     });
     c._s3.set(key(today),
       [

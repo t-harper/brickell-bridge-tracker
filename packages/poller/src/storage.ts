@@ -4,9 +4,17 @@ import {
   BRIDGE_ID,
   type BridgeEvent,
   type BridgeState,
+  type BridgeStatus,
   type FL511Bridge,
 } from "@bridge-tracker/shared";
 import { ddb, s3 } from "./awsClients.js";
+
+// If FL511's claimed last-refresh timestamp is more than this far behind our
+// observation, the upstream feed is frozen and "DOWN" / "UP" readings are not
+// trustworthy. We promote the bridge to UNKNOWN until the feed catches up.
+// Source incident: 2026-05-21/22 — feed pinned at 12:06 AM ET for ~35h while
+// we recorded a fake 35h-long DOWN cycle.
+const FEED_STALENESS_MS = 15 * 60 * 1000;
 
 const TABLE = () => requireEnv("CURRENT_TABLE");
 const BUCKET = () => requireEnv("HISTORY_BUCKET");
@@ -73,11 +81,25 @@ export interface ReconcileResult {
   eventWritten: BridgeEvent | null;
 }
 
+function isFeedStale(incoming: FL511Bridge): boolean {
+  if (!incoming.feedLastUpdatedAt) return false;
+  const feedMs = new Date(incoming.feedLastUpdatedAt).getTime();
+  if (!Number.isFinite(feedMs)) return false;
+  const observedMs = new Date(incoming.observedAt).getTime();
+  return observedMs - feedMs > FEED_STALENESS_MS;
+}
+
 export async function reconcile(
   incoming: FL511Bridge,
   now: Date = new Date(),
 ): Promise<ReconcileResult> {
   const prev = await readCurrent();
+
+  // When the feed is frozen, we don't trust FL511's reported status — promote
+  // to UNKNOWN. eventsToCycles only opens/closes on UP↔DOWN, so transitions
+  // through UNKNOWN naturally drop out of the stats window.
+  const effectiveStatus: BridgeStatus = isFeedStale(incoming) ? "UNKNOWN" : incoming.status;
+
   let statusChangedAt = prev?.statusChangedAt ?? incoming.observedAt;
   let eventWritten: BridgeEvent | null = null;
 
@@ -85,7 +107,7 @@ export async function reconcile(
   // first poll ever). Routine polls account for >99% of writes; skipping them
   // cuts our S3 PUT+GET bill by the same factor. The status-change events
   // in events/*.jsonl are what /stats and /history actually read.
-  const isStatusChange = prev != null && prev.status !== incoming.status;
+  const isStatusChange = prev != null && prev.status !== effectiveStatus;
   const isFirstPoll = !prev;
   let rawSnapshotPointer: string | null = prev?.rawSnapshotPointer ?? null;
 
@@ -93,7 +115,9 @@ export async function reconcile(
     const pKey = pollKey(now);
     await appendJsonl(pKey, {
       ts: incoming.observedAt,
-      status: incoming.status,
+      status: effectiveStatus,
+      rawStatus: incoming.status,
+      feedLastUpdatedAt: incoming.feedLastUpdatedAt,
       metadata: incoming.metadata,
       alerts: incoming.alerts,
       raw: incoming.raw,
@@ -110,7 +134,7 @@ export async function reconcile(
     const ev: BridgeEvent = {
       ts: incoming.observedAt,
       from: prev!.status,
-      to: incoming.status,
+      to: effectiveStatus,
       durationOfPrevStateSec: durationSec,
     };
     await appendJsonl(eventKey(now), ev);
@@ -122,9 +146,10 @@ export async function reconcile(
 
   const state: BridgeState = {
     pk: BRIDGE_ID,
-    status: incoming.status,
+    status: effectiveStatus,
     statusChangedAt,
     lastPolledAt: incoming.observedAt,
+    feedLastUpdatedAt: incoming.feedLastUpdatedAt,
     metadata: incoming.metadata,
     nearbyAlerts: incoming.alerts,
     rawSnapshotPointer,

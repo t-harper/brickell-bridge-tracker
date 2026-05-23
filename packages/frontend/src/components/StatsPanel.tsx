@@ -29,6 +29,14 @@ function Card({ label, value, sub }: { label: string; value: string; sub?: strin
 export function StatsPanel({ stats }: { stats: BridgeStats | null }) {
   if (!stats) return null;
   const b = stats.breakdown;
+  const rh = b.rushHourCompliance;
+  const rhValue = rh
+    ? `${Math.round(rh.pct * 100)}%`
+    : "—";
+  const rhSub = rh
+    ? `${rh.compliantWindows}/${rh.totalRushWindows} windows clear` +
+      (rh.nonCompliantOpens > 0 ? ` · ${rh.nonCompliantOpens} open${rh.nonCompliantOpens === 1 ? "" : "s"}` : "")
+    : "no complete weekday rush windows yet";
   return (
     <div className="card">
       <h2>
@@ -42,6 +50,7 @@ export function StatsPanel({ stats }: { stats: BridgeStats | null }) {
         <Card label="Avg gap" value={fmtDuration(b.avgGapBetweenOpensSec)} sub={`median ${fmtDuration(b.medianGapBetweenOpensSec)}`} />
         <Card label="% time UP" value={`${(b.pctTimeUp * 100).toFixed(1)}%`} />
         <Card label="Busiest / quietest" value={`${fmtHour(b.busiestHourLocal)} / ${fmtHour(b.quietestHourLocal)}`} />
+        <Card label="Rush-hour compliance" value={rhValue} sub={rhSub} />
       </div>
     </div>
   );

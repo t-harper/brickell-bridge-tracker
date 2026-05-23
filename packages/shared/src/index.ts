@@ -26,7 +26,12 @@ export interface FL511Bridge {
   metadata: BridgeMetadata;
   alerts: FL511Alert[];
   raw: unknown;
+  // Our wall-clock when the poll completed.
   observedAt: string;
+  // FL511's claimed last-refresh timestamp for the row, in UTC ISO. Null if
+  // absent or unparseable. Used to detect a frozen upstream feed — see the
+  // reconciler's staleness check.
+  feedLastUpdatedAt: string | null;
 }
 
 export interface BridgeState {
@@ -34,6 +39,7 @@ export interface BridgeState {
   status: BridgeStatus;
   statusChangedAt: string;
   lastPolledAt: string;
+  feedLastUpdatedAt: string | null;
   metadata: BridgeMetadata;
   nearbyAlerts: FL511Alert[];
   rawSnapshotPointer: string | null;
@@ -50,6 +56,13 @@ export * from "./devices.js";
 export * from "./analytics.js";
 export * from "./aggregate.js";
 
+export interface RushHourCompliance {
+  compliantWindows: number;
+  totalRushWindows: number;
+  pct: number;
+  nonCompliantOpens: number;
+}
+
 export interface BridgeStatsBreakdown {
   avgGapBetweenOpensSec: number | null;
   medianGapBetweenOpensSec: number | null;
@@ -61,6 +74,7 @@ export interface BridgeStatsBreakdown {
   opensByHourLocal: number[];
   opensByDay: { date: string; opens: number }[];
   heatmap: number[][];
+  rushHourCompliance: RushHourCompliance | null;
 }
 
 export interface BridgeStats {

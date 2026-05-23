@@ -20,7 +20,7 @@ locals {
       APNS_TEAM_ID         = var.apns_team_id
       APNS_KEY_ID          = var.apns_key_id
       APNS_BUNDLE_ID       = var.apns_bundle_id
-      APNS_KEY_SECRET_ARN  = aws_secretsmanager_secret.apns[0].arn
+      APNS_KEY_PARAM_NAME  = aws_ssm_parameter.apns[0].name
     } : {}
   )
 }

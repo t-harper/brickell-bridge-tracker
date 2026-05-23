@@ -1,4 +1,4 @@
-import type { FL511Alert, FL511Bridge, BridgeStatus } from "@bridge-tracker/shared";
+import { localTimeToUtcMs, type FL511Alert, type FL511Bridge, type BridgeStatus } from "@bridge-tracker/shared";
 
 const BRIDGE_LIST_URL = "https://fl511.com/List/GetData/Bridge";
 
@@ -9,6 +9,31 @@ const BRICKELL_MATCHER = /brickell avenue bridge/i;
 // it out of the event endpoint's camera WKT.
 const BRICKELL_LAT = 25.770124;
 const BRICKELL_LON = -80.190208;
+
+// FL511 stamps the row's last-refresh time in Miami local time. Parse to UTC
+// ISO so the reconciler can detect a frozen feed (the 2026-05-21/22 outage:
+// FL511 kept returning "Bridge Down" with lastUpdated pinned for ~35h).
+const FL511_TZ = "America/New_York";
+
+export function parseFL511Timestamp(s: string | null | undefined): string | null {
+  if (!s) return null;
+  const m = s.match(/^\s*(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:,\s*(\d{1,2}):(\d{2})\s*(AM|PM))?\s*$/i);
+  if (!m) return null;
+  const month = Number(m[1]);
+  const day = Number(m[2]);
+  const yearRaw = Number(m[3]);
+  const year = yearRaw < 100 ? 2000 + yearRaw : yearRaw;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  let hour = m[4] ? Number(m[4]) : 0;
+  const minute = m[5] ? Number(m[5]) : 0;
+  const ampm = m[6]?.toUpperCase();
+  if (ampm === "AM" && hour === 12) hour = 0;
+  else if (ampm === "PM" && hour !== 12) hour += 12;
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  const utcMs = localTimeToUtcMs(dateStr, hour, minute, FL511_TZ);
+  return new Date(utcMs).toISOString();
+}
 
 const COMMON_HEADERS = {
   "User-Agent":
@@ -96,5 +121,6 @@ export async function fetchBrickellBridge(): Promise<FL511Bridge> {
     alerts,
     raw: { bridge: row },
     observedAt,
+    feedLastUpdatedAt: parseFL511Timestamp(row.lastUpdated),
   };
 }

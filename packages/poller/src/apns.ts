@@ -1,6 +1,6 @@
 import { createSign } from "node:crypto";
 import http2 from "node:http2";
-import { SecretsManagerClient, GetSecretValueCommand } from "@aws-sdk/client-secrets-manager";
+import { SSMClient, GetParameterCommand } from "@aws-sdk/client-ssm";
 
 const HOST = "https://api.push.apple.com";
 
@@ -30,17 +30,19 @@ async function loadConfig(): Promise<APNsConfig | null> {
   const teamId = process.env.APNS_TEAM_ID;
   const keyId = process.env.APNS_KEY_ID;
   const bundleId = process.env.APNS_BUNDLE_ID;
-  const secretArn = process.env.APNS_KEY_SECRET_ARN;
-  if (!teamId || !keyId || !bundleId || !secretArn) return null;
+  const paramName = process.env.APNS_KEY_PARAM_NAME;
+  if (!teamId || !keyId || !bundleId || !paramName) return null;
 
   if (cached && Date.now() - cached.loadedAt < 10 * 60_000) return cached.config;
 
-  const client = new SecretsManagerClient({
+  const client = new SSMClient({
     region: process.env.AWS_REGION ?? "us-east-1",
     ...endpointConfig(),
   });
-  const r = await client.send(new GetSecretValueCommand({ SecretId: secretArn }));
-  const privateKeyPEM = r.SecretString;
+  const r = await client.send(
+    new GetParameterCommand({ Name: paramName, WithDecryption: true }),
+  );
+  const privateKeyPEM = r.Parameter?.Value;
   if (!privateKeyPEM) return null;
 
   const config: APNsConfig = { teamId, keyId, bundleId, privateKeyPEM };

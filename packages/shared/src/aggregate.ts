@@ -4,8 +4,85 @@ import type {
   BridgeState,
   BridgeStats,
   BridgeStatsBreakdown,
+  RushHourCompliance,
 } from "./index.js";
 import { eventsToCycles } from "./analytics.js";
+
+// 33 CFR 117.261(t): Brickell Avenue Bridge need not open Mon-Fri during
+// these windows (federal holidays excepted; we don't model holidays since
+// our default 7-day window only spans 5 weekdays at most).
+const RUSH_WINDOWS_LOCAL: ReadonlyArray<{ startH: number; startM: number; endH: number; endM: number }> = [
+  { startH: 7, startM: 35, endH: 8, endM: 59 },
+  { startH: 16, startM: 35, endH: 17, endM: 59 },
+];
+
+function dayOfWeekIdx(dateStr: string, tz: string): number {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const anchor = new Date(Date.UTC(y, m - 1, d, 12));
+  const wd = new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short" }).format(anchor);
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(wd);
+}
+
+// Convert "this local date at HH:MM in tz" to absolute UTC ms. Handles DST
+// since the offset is computed for the specific calendar date.
+export function localTimeToUtcMs(dateStr: string, hour: number, minute: number, tz: string): number {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const naiveUtcMs = Date.UTC(y, m - 1, d, hour, minute, 0);
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+  const parts = fmt.formatToParts(new Date(naiveUtcMs));
+  const get = (t: string) => parseInt(parts.find((p) => p.type === t)?.value ?? "0", 10);
+  const asLocalUtcMs = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"));
+  const offset = asLocalUtcMs - naiveUtcMs;
+  return naiveUtcMs - offset;
+}
+
+function computeRushHourCompliance(
+  cycles: BridgeCycle[],
+  dates: string[],
+  tz: string,
+  windowStartMs: number,
+  windowEndMs: number,
+): RushHourCompliance | null {
+  const completeWindows: { startMs: number; endMs: number }[] = [];
+  for (const dateStr of dates) {
+    const dow = dayOfWeekIdx(dateStr, tz);
+    if (dow < 1 || dow > 5) continue; // skip weekends
+    for (const w of RUSH_WINDOWS_LOCAL) {
+      const startMs = localTimeToUtcMs(dateStr, w.startH, w.startM, tz);
+      const endMs = localTimeToUtcMs(dateStr, w.endH, w.endM, tz);
+      if (startMs >= windowStartMs && endMs <= windowEndMs) {
+        completeWindows.push({ startMs, endMs });
+      }
+    }
+  }
+  if (completeWindows.length === 0) return null;
+
+  let compliantWindows = 0;
+  let nonCompliantOpens = 0;
+  for (const w of completeWindows) {
+    let opensIn = 0;
+    for (const c of cycles) {
+      const t = new Date(c.openedAt).getTime();
+      if (t >= w.startMs && t <= w.endMs) opensIn++;
+    }
+    nonCompliantOpens += opensIn;
+    if (opensIn === 0) compliantWindows++;
+  }
+  return {
+    compliantWindows,
+    totalRushWindows: completeWindows.length,
+    pct: compliantWindows / completeWindows.length,
+    nonCompliantOpens,
+  };
+}
 
 export interface PrecomputedAggregates {
   generatedAt: string;
@@ -144,6 +221,14 @@ function buildBreakdown(
   }, 0);
   const pctTimeUp = Math.min(1, Math.max(0, upDurationSec / windowSec));
 
+  const rushHourCompliance = computeRushHourCompliance(
+    cycles,
+    dates,
+    tz,
+    windowStartMs,
+    now.getTime(),
+  );
+
   return {
     avgGapBetweenOpensSec: avgGap,
     medianGapBetweenOpensSec: medianGap,
@@ -155,6 +240,7 @@ function buildBreakdown(
     opensByHourLocal,
     opensByDay,
     heatmap,
+    rushHourCompliance,
   };
 }
 

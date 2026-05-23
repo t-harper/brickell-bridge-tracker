@@ -30,7 +30,7 @@ async function scanDevices(): Promise<DeviceRecord[]> {
 
 export async function pushLiveActivityUpdates(state: BridgeState, event: BridgeEvent | null): Promise<void> {
   if (!DEVICES_TABLE()) return;
-  if (!process.env.APNS_KEY_SECRET_ARN) return;
+  if (!process.env.APNS_KEY_PARAM_NAME) return;
 
   const devices = await scanDevices();
   const contentState = {

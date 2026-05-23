@@ -6,9 +6,16 @@ function fmtHour(h: number): string {
   return `${hh}${ampm}`;
 }
 
-function shortDate(iso: string): string {
-  const [, m, d] = iso.split("-");
-  return `${parseInt(m, 10)}/${parseInt(d, 10)}`;
+// Format the YYYY-MM-DD (already in local Miami time from the server) as a
+// weekday short name. Anchor at noon UTC + ask Intl for the weekday in
+// America/New_York so the local-date string maps to the correct weekday.
+const weekdayFmt = new Intl.DateTimeFormat("en-US", {
+  weekday: "short",
+  timeZone: "America/New_York",
+});
+function weekdayShort(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  return weekdayFmt.format(new Date(Date.UTC(y, m - 1, d, 12)));
 }
 
 export function Heatmap({ breakdown }: { breakdown: BridgeStatsBreakdown }) {
@@ -18,7 +25,7 @@ export function Heatmap({ breakdown }: { breakdown: BridgeStatsBreakdown }) {
 
   const cellW = 22;
   const cellH = 18;
-  const labelW = 52;
+  const labelW = 36;
   const labelH = 14;
   const width = labelW + 24 * cellW + 4;
   const height = labelH + heatmap.length * cellH;
@@ -57,7 +64,7 @@ export function Heatmap({ breakdown }: { breakdown: BridgeStatsBreakdown }) {
                 textAnchor="end"
                 className="heatmap-label"
               >
-                {shortDate(rows[r].date)}
+                {weekdayShort(rows[r].date)}
               </text>
               {row.map((count, h) => {
                 const intensity = count === 0 ? 0 : 0.15 + 0.85 * (count / max);

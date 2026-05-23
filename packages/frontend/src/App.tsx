@@ -30,23 +30,39 @@ function fmtHourLabel(h: number): string {
   return `${hh}${ampm}`;
 }
 
+// If FL511's row hasn't refreshed in this long, treat the feed as frozen.
+// Mirrors the FEED_STALENESS_MS in packages/poller/src/storage.ts — kept
+// separate because the server also writes UNKNOWN at the same threshold;
+// this is just for richer UI messaging while the server catches up.
+const FEED_STALENESS_MS = 15 * 60 * 1000;
+
 function StatusCard({ state }: { state: BridgeState | null }) {
   if (!state) return <div className="card">Waiting for first poll…</div>;
   const isUp = state.status === "UP";
+  const isUnknown = state.status === "UNKNOWN";
   const sinceSec = Math.max(
     0,
     Math.round((Date.now() - new Date(state.statusChangedAt).getTime()) / 1000),
   );
+  const feedMs = state.feedLastUpdatedAt ? new Date(state.feedLastUpdatedAt).getTime() : null;
+  const feedStale = feedMs != null && Date.now() - feedMs > FEED_STALENESS_MS;
+  const statusClass = isUp ? "up" : isUnknown ? "unknown" : "down";
   return (
-    <div className={`card status ${isUp ? "up" : "down"}`}>
+    <div className={`card status ${statusClass}`}>
       <h1>
         {isUp
           ? "UP — traffic stopped"
           : state.status === "DOWN"
             ? "DOWN — open to traffic"
-            : "UNKNOWN"}
+            : "UNKNOWN — FL511 feed unavailable"}
       </h1>
       <div className="since">for {fmtDuration(sinceSec)}</div>
+      {feedStale && state.feedLastUpdatedAt && (
+        <div className="stale-banner">
+          FL511 feed appears frozen — last upstream refresh {fmtTime(state.feedLastUpdatedAt)}.
+          Status readings are not trustworthy until it catches up.
+        </div>
+      )}
       <dl>
         <dt>Roadway</dt><dd>{state.metadata.roadway ?? "—"}</dd>
         <dt>Location</dt><dd>{state.metadata.location ?? "—"}</dd>

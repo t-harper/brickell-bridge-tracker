@@ -21,6 +21,7 @@ const state = (
   status,
   statusChangedAt,
   lastPolledAt: statusChangedAt,
+  feedLastUpdatedAt: statusChangedAt,
   metadata: {
     roadway: null,
     location: null,

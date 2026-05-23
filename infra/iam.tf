@@ -43,8 +43,8 @@ data "aws_iam_policy_document" "lambda_inline" {
   dynamic "statement" {
     for_each = local.apns_enabled ? [1] : []
     content {
-      actions   = ["secretsmanager:GetSecretValue"]
-      resources = [aws_secretsmanager_secret.apns[0].arn]
+      actions   = ["ssm:GetParameter"]
+      resources = [aws_ssm_parameter.apns[0].arn]
     }
   }
 }
