@@ -9,12 +9,12 @@ import {
 } from "@bridge-tracker/shared";
 import { ddb, s3 } from "./awsClients.js";
 
-// If FL511's claimed last-refresh timestamp is more than this far behind our
-// observation, the upstream feed is frozen and "DOWN" / "UP" readings are not
-// trustworthy. We promote the bridge to UNKNOWN until the feed catches up.
-// Source incident: 2026-05-21/22 — feed pinned at 12:06 AM ET for ~35h while
-// we recorded a fake 35h-long DOWN cycle.
-const FEED_STALENESS_MS = 15 * 60 * 1000;
+// FL511 only refreshes `lastUpdated` on status changes — not on every poll —
+// so the lag between observation and feedLastUpdatedAt is just "how long
+// since the last open/close". Normal quiet hours legitimately produce 1-3h
+// gaps. A 4h threshold still catches the 5/21-5/22 incident (35h) without
+// false-positiving on overnight quiet windows.
+const FEED_STALENESS_MS = 4 * 60 * 60 * 1000;
 
 const TABLE = () => requireEnv("CURRENT_TABLE");
 const BUCKET = () => requireEnv("HISTORY_BUCKET");

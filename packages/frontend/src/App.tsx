@@ -30,11 +30,10 @@ function fmtHourLabel(h: number): string {
   return `${hh}${ampm}`;
 }
 
-// If FL511's row hasn't refreshed in this long, treat the feed as frozen.
-// Mirrors the FEED_STALENESS_MS in packages/poller/src/storage.ts — kept
-// separate because the server also writes UNKNOWN at the same threshold;
-// this is just for richer UI messaging while the server catches up.
-const FEED_STALENESS_MS = 15 * 60 * 1000;
+// Mirrors FEED_STALENESS_MS in packages/poller/src/storage.ts. FL511 only
+// refreshes lastUpdated when the bridge status changes, so the threshold has
+// to clear normal quiet windows (some overnight gaps reach 2-3h).
+const FEED_STALENESS_MS = 4 * 60 * 60 * 1000;
 
 function StatusCard({ state }: { state: BridgeState | null }) {
   if (!state) return <div className="card">Waiting for first poll…</div>;

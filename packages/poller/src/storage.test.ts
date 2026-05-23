@@ -123,15 +123,15 @@ describe("reconcile", () => {
     expect(content!.trim().split("\n")).toHaveLength(1);
   });
 
-  it("promotes status to UNKNOWN when FL511 feed is stale (>15min)", async () => {
+  it("promotes status to UNKNOWN when FL511 feed is stale (>4h)", async () => {
     // Fresh first poll establishes DOWN.
     await reconcile(bridge("DOWN", "2026-05-21T04:00:00.000Z", "2026-05-21T04:00:00.000Z"));
 
-    // 20 min later we poll again, but FL511's lastUpdated hasn't advanced —
-    // its feed is frozen. We should NOT trust the "DOWN" reading; record
-    // UNKNOWN instead.
+    // 5h later we poll again, but FL511's lastUpdated hasn't advanced — feed
+    // is frozen. FL511 only refreshes lastUpdated on status changes, so a 4h
+    // threshold is conservative enough to skip normal quiet windows.
     const r = await reconcile(
-      bridge("DOWN", "2026-05-21T04:20:00.000Z", "2026-05-21T04:00:00.000Z"),
+      bridge("DOWN", "2026-05-21T09:00:00.000Z", "2026-05-21T04:00:00.000Z"),
     );
     expect(r.state.status).toBe("UNKNOWN");
     expect(r.eventWritten).not.toBeNull();
@@ -142,11 +142,11 @@ describe("reconcile", () => {
   it("does not write a duplicate event while feed stays stale", async () => {
     await reconcile(bridge("DOWN", "2026-05-21T04:00:00.000Z", "2026-05-21T04:00:00.000Z"));
     await reconcile(
-      bridge("DOWN", "2026-05-21T04:20:00.000Z", "2026-05-21T04:00:00.000Z"),
+      bridge("DOWN", "2026-05-21T09:00:00.000Z", "2026-05-21T04:00:00.000Z"),
     );
     // Third poll, still stale — no new event.
     const r = await reconcile(
-      bridge("DOWN", "2026-05-21T04:30:00.000Z", "2026-05-21T04:00:00.000Z"),
+      bridge("DOWN", "2026-05-21T10:00:00.000Z", "2026-05-21T04:00:00.000Z"),
     );
     expect(r.state.status).toBe("UNKNOWN");
     expect(r.eventWritten).toBeNull();
@@ -155,7 +155,7 @@ describe("reconcile", () => {
   it("recovers to the real status when the feed unfreezes", async () => {
     await reconcile(bridge("DOWN", "2026-05-21T04:00:00.000Z", "2026-05-21T04:00:00.000Z"));
     await reconcile(
-      bridge("DOWN", "2026-05-21T04:20:00.000Z", "2026-05-21T04:00:00.000Z"),
+      bridge("DOWN", "2026-05-21T09:00:00.000Z", "2026-05-21T04:00:00.000Z"),
     );
     // Feed catches up — UNKNOWN → UP transition.
     const r = await reconcile(
