@@ -57,7 +57,7 @@ foreground. Remote push updates require:
    ```hcl
    apns_team_id   = "ABCDE12345"
    apns_key_id    = "FGHIJ67890"
-   apns_bundle_id = "com.example.bridgetracker"
+   apns_bundle_id = "net.travis-harper.bridgetracker"
    apns_p8_file   = "/absolute/path/to/AuthKey_FGHIJ67890.p8"
    ```
 

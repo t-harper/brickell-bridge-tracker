@@ -21,7 +21,7 @@ actor NotificationRegistrar {
     func didReceiveAPNsToken(_ hex: String) async {
         self.apnsToken = hex
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
-        let bundleId = Bundle.main.bundleIdentifier ?? "com.example.bridgetracker"
+        let bundleId = Bundle.main.bundleIdentifier ?? "net.travis-harper.bridgetracker"
         let req = DeviceRegistrationRequest(
             deviceId: DeviceIdentity.deviceId,
             apnsToken: hex,
