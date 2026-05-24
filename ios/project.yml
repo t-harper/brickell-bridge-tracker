@@ -44,6 +44,9 @@ targets:
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "Shows your location relative to the Brickell Avenue Bridge."
         INFOPLIST_KEY_NSUserActivityTypes: "BridgeStatusIntent"
         INFOPLIST_KEY_CFBundleURLTypes_Generation: NO
+        # Skips the App Store Connect export compliance prompt. The app only
+        # uses standard HTTPS via URLSession (exempt under US export rules).
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
     preBuildScripts:
       - name: SwiftLint (optional)
         script: |
