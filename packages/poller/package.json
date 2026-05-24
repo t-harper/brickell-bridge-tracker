@@ -11,10 +11,10 @@
     "bundle": "node ../../scripts/bundle-lambda.mjs poller"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.682.0",
-    "@aws-sdk/client-s3": "^3.682.0",
-    "@aws-sdk/client-ssm": "^3.682.0",
-    "@aws-sdk/lib-dynamodb": "^3.682.0",
+    "@aws-sdk/client-dynamodb": "^3.1053.0",
+    "@aws-sdk/client-s3": "^3.1053.0",
+    "@aws-sdk/client-ssm": "^3.1053.0",
+    "@aws-sdk/lib-dynamodb": "^3.1053.0",
     "@bridge-tracker/shared": "*"
   },
   "devDependencies": {
