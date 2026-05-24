@@ -2,6 +2,20 @@ import ActivityKit
 import Foundation
 import UIKit
 
+enum LiveActivityStartError: Error, LocalizedError {
+    case notAuthorized
+    case requestFailed(Error)
+
+    var errorDescription: String? {
+        switch self {
+        case .notAuthorized:
+            return "Live Activities are turned off. Enable them in Settings → Brickell Bridge → Live Activities."
+        case .requestFailed(let err):
+            return err.localizedDescription
+        }
+    }
+}
+
 @MainActor
 final class LiveActivityController {
     static let shared = LiveActivityController()
@@ -11,10 +25,13 @@ final class LiveActivityController {
 
     var isRunning: Bool { activity != nil }
 
-    func start(with state: BridgeState) async {
+    // Started with pushType: nil — remote updates need an aps-environment
+    // entitlement we don't have yet. Updates happen via updateIfRunning()
+    // while the app is foreground; status will pause when the app is
+    // backgrounded until push is wired up.
+    func start(with state: BridgeState) async throws {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
-            print("Live Activities disabled by user")
-            return
+            throw LiveActivityStartError.notAuthorized
         }
         await stop()
 
@@ -32,15 +49,13 @@ final class LiveActivityController {
         )
 
         do {
-            let act = try Activity.request(
+            self.activity = try Activity.request(
                 attributes: attrs,
                 content: content,
-                pushType: .token
+                pushType: nil
             )
-            self.activity = act
-            watchPushToken(act)
         } catch {
-            print("Live Activity start failed: \(error.localizedDescription)")
+            throw LiveActivityStartError.requestFailed(error)
         }
     }
 

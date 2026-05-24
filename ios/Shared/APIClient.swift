@@ -55,8 +55,8 @@ public actor APIClient {
         try await get("/api/bridges/brickell")
     }
 
-    public func getHistory(days: Int = 7) async throws -> [BridgeEvent] {
-        let resp: HistoryResponse = try await get("/api/bridges/brickell/history?days=\(days)")
+    public func getHistory(days: Int = 7, minDurationSec: Int = 60) async throws -> [BridgeEvent] {
+        let resp: HistoryResponse = try await get("/api/bridges/brickell/history?days=\(days)&minDurationSec=\(minDurationSec)")
         return resp.events
     }
 

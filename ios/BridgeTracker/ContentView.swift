@@ -4,6 +4,7 @@ import MapKit
 struct ContentView: View {
     @EnvironmentObject var store: BridgeStore
     @State private var liveActivityRunning = LiveActivityController.shared.isRunning
+    @State private var liveActivityError: String?
 
     var body: some View {
         NavigationStack {
@@ -47,15 +48,32 @@ struct ContentView: View {
         }
         .onAppear { store.startAutoRefresh() }
         .onDisappear { store.stopAutoRefresh() }
+        .alert(
+            "Couldn’t start Live Activity",
+            isPresented: Binding(
+                get: { liveActivityError != nil },
+                set: { if !$0 { liveActivityError = nil } }
+            ),
+            presenting: liveActivityError
+        ) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { msg in
+            Text(msg)
+        }
     }
 
     private var liveActivityButton: some View {
         Button {
             Task {
-                if liveActivityRunning {
-                    await LiveActivityController.shared.stop()
-                } else if let state = store.state {
-                    await LiveActivityController.shared.start(with: state)
+                do {
+                    if liveActivityRunning {
+                        await LiveActivityController.shared.stop()
+                    } else if let state = store.state {
+                        try await LiveActivityController.shared.start(with: state)
+                    }
+                } catch {
+                    liveActivityError = (error as? LocalizedError)?.errorDescription
+                        ?? error.localizedDescription
                 }
                 liveActivityRunning = LiveActivityController.shared.isRunning
             }
