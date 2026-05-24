@@ -78,6 +78,10 @@ jobs:
 
       - name: Terraform apply
         working-directory: infra
+        env:
+          # .p8 contents land in SSM (SecureString) and the Lambda only needs
+          # the SSM path, so the key value never appears in build output.
+          TF_VAR_apns_p8_pem: ${{ secrets.APNS_KEY_P8 }}
         run: terraform apply -auto-approve -no-color -var-file=envs/prod.tfvars
 
       - name: Sync frontend to S3

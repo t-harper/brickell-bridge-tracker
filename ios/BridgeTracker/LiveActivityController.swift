@@ -25,10 +25,6 @@ final class LiveActivityController {
 
     var isRunning: Bool { activity != nil }
 
-    // Started with pushType: nil — remote updates need an aps-environment
-    // entitlement we don't have yet. Updates happen via updateIfRunning()
-    // while the app is foreground; status will pause when the app is
-    // backgrounded until push is wired up.
     func start(with state: BridgeState) async throws {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
             throw LiveActivityStartError.notAuthorized
@@ -49,11 +45,13 @@ final class LiveActivityController {
         )
 
         do {
-            self.activity = try Activity.request(
+            let act = try Activity.request(
                 attributes: attrs,
                 content: content,
-                pushType: nil
+                pushType: .token
             )
+            self.activity = act
+            watchPushToken(act)
         } catch {
             throw LiveActivityStartError.requestFailed(error)
         }

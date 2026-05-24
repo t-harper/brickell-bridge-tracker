@@ -31,6 +31,13 @@ targets:
       - path: BridgeTracker/Assets.xcassets
     dependencies:
       - target: BridgeWidgetExtension
+    # Xcode swaps "development" → "production" automatically when archiving
+    # with a Distribution profile (TestFlight, App Store), so the same value
+    # works for local dev builds and TestFlight uploads.
+    entitlements:
+      path: BridgeTracker/BridgeTracker.entitlements
+      properties:
+        aps-environment: development
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: net.travis-harper.bridgetracker

@@ -51,10 +51,11 @@ variable "apns_bundle_id" {
   default     = ""
 }
 
-variable "apns_p8_file" {
-  description = "Local path to the APNs .p8 file to upload into Secrets Manager. Empty to skip."
+variable "apns_p8_pem" {
+  description = "Contents of the APNs .p8 private key (PEM). Empty to skip APNs wiring. Pass via TF_VAR_apns_p8_pem rather than committing it."
   type        = string
   default     = ""
+  sensitive   = true
 }
 
 variable "bridge_domain" {
@@ -69,5 +70,5 @@ locals {
   devices_table   = "${local.name_prefix}-devices-${var.env}"
   history_bucket  = "${local.name_prefix}-history-${var.env}"
   frontend_bucket = "${local.name_prefix}-frontend-${var.env}"
-  apns_enabled    = var.apns_team_id != "" && var.apns_key_id != "" && var.apns_bundle_id != "" && var.apns_p8_file != ""
+  apns_enabled    = var.apns_team_id != "" && var.apns_key_id != "" && var.apns_bundle_id != "" && var.apns_p8_pem != ""
 }

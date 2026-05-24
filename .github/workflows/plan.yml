@@ -78,6 +78,8 @@ jobs:
         id: plan
         working-directory: infra
         continue-on-error: true
+        env:
+          TF_VAR_apns_p8_pem: ${{ secrets.APNS_KEY_P8 }}
         run: |
           set -o pipefail
           terraform plan -no-color -lock=false -var-file=envs/prod.tfvars 2>&1 | tee plan.txt
