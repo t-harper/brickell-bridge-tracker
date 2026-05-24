@@ -46,6 +46,15 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # Apple requires apps to be built with the iOS 26 SDK or later for
+      # App Store Connect uploads. The macos-latest runner ships multiple
+      # Xcodes; default may be an older one, so pick the newest installed.
+      - name: Select latest Xcode
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
