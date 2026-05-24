@@ -1,6 +1,6 @@
 name: BridgeTracker
 options:
-  bundleIdPrefix: com.example.bridgetracker
+  bundleIdPrefix: net.travis-harper.bridgetracker
   deploymentTarget:
     iOS: "17.0"
   xcodeVersion: "15.0"
@@ -35,7 +35,7 @@ targets:
       - target: BridgeWidgetExtension
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.bridgetracker
+        PRODUCT_BUNDLE_IDENTIFIER: net.travis-harper.bridgetracker
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_CFBundleDisplayName: "Brickell Bridge"
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
@@ -61,7 +61,7 @@ targets:
       - path: Shared
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.bridgetracker.widget
+        PRODUCT_BUNDLE_IDENTIFIER: net.travis-harper.bridgetracker.widget
         INFOPLIST_FILE: BridgeWidgetExtension/Info.plist
         SKIP_INSTALL: YES
         CODE_SIGN_STYLE: Automatic

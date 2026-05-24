@@ -1,0 +1,151 @@
+name: iOS to BrowserStack
+
+# Builds the iOS app on macos-latest and uploads to BrowserStack App Live
+# for interactive real-device testing. Default signing is `development` —
+# if BrowserStack rejects it (App Live officially wants Ad-Hoc/Enterprise),
+# re-run with workflow_dispatch and set export_method=release-testing. That
+# requires BrowserStack's device UDIDs to be registered in Apple Developer
+# Portal first (one-time, see ios/README-browserstack.md if added).
+
+on:
+  push:
+    branches: [main]
+    paths: ["ios/**", ".github/workflows/ios-browserstack.yml"]
+  workflow_dispatch:
+    inputs:
+      export_method:
+        description: "Signing method for the IPA"
+        required: true
+        default: "development"
+        type: choice
+        options:
+          - development
+          - release-testing  # ad-hoc; needs registered device UDIDs
+      api_base_url:
+        description: "API base URL baked into the build"
+        required: true
+        default: "https://bridge.travis-harper.net"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-upload:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+      ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+      EXPORT_METHOD: ${{ inputs.export_method || 'development' }}
+      API_BASE_URL: ${{ inputs.api_base_url || 'https://bridge.travis-harper.net' }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      # Secret comes through env so it never appears in the script text
+      # (GitHub also masks it in logs, but env-passing is the safer pattern).
+      - name: Write App Store Connect API key
+        env:
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+        run: |
+          KEY_DIR=~/.appstoreconnect/private_keys
+          mkdir -p "$KEY_DIR"
+          KEY_PATH="$KEY_DIR/AuthKey_${ASC_API_KEY_ID}.p8"
+          printf '%s' "$ASC_API_KEY_P8" > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          echo "KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+
+      - name: Build archive
+        working-directory: ios
+        run: |
+          xcodebuild \
+            -project BridgeTracker.xcodeproj \
+            -scheme BridgeTracker \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath build/BridgeTracker.xcarchive \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            API_BASE_URL="$API_BASE_URL" \
+            -authenticationKeyPath "$KEY_PATH" \
+            -authenticationKeyID "$ASC_API_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_API_ISSUER_ID" \
+            -allowProvisioningUpdates \
+            archive
+
+      - name: Export IPA
+        working-directory: ios
+        run: |
+          cat > build/ExportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>${EXPORT_METHOD}</string>
+            <key>teamID</key>
+            <string>${APPLE_TEAM_ID}</string>
+            <key>signingStyle</key>
+            <string>automatic</string>
+            <key>destination</key>
+            <string>export</string>
+            <key>stripSwiftSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath build/BridgeTracker.xcarchive \
+            -exportPath build/ipa \
+            -exportOptionsPlist build/ExportOptions.plist \
+            -authenticationKeyPath "$KEY_PATH" \
+            -authenticationKeyID "$ASC_API_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_API_ISSUER_ID" \
+            -allowProvisioningUpdates
+
+      - name: Upload to BrowserStack App Live
+        working-directory: ios
+        env:
+          BS_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+          BS_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+        run: |
+          IPA=$(find build/ipa -name '*.ipa' | head -1)
+          if [ -z "$IPA" ]; then
+            echo "::error::No IPA found in build/ipa"
+            exit 1
+          fi
+          SIZE=$(du -h "$IPA" | cut -f1)
+          echo "Uploading $IPA ($SIZE) signed=$EXPORT_METHOD"
+
+          RESP=$(curl -sS -u "$BS_USERNAME:$BS_ACCESS_KEY" \
+            -X POST https://api-cloud.browserstack.com/app-live/upload \
+            -F "file=@$IPA")
+          echo "BrowserStack response: $RESP"
+
+          APP_URL=$(echo "$RESP" | jq -r '.app_url // empty')
+          APP_NAME=$(echo "$RESP" | jq -r '.app_name // empty')
+          if [ -z "$APP_URL" ]; then
+            echo "::error::Upload failed — no app_url in response"
+            exit 1
+          fi
+
+          {
+            echo "## BrowserStack upload"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| App URL | \`$APP_URL\` |"
+            echo "| App name | $APP_NAME |"
+            echo "| Size | $SIZE |"
+            echo "| Signing | $EXPORT_METHOD |"
+            echo "| API URL | $API_BASE_URL |"
+            echo ""
+            echo "Open https://app-live.browserstack.com/ → Recent Apps to start a session."
+          } >> "$GITHUB_STEP_SUMMARY"

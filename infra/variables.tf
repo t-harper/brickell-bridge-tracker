@@ -46,7 +46,7 @@ variable "apns_key_id" {
 }
 
 variable "apns_bundle_id" {
-  description = "iOS app bundle id (e.g. com.example.bridgetracker)."
+  description = "iOS app bundle id (e.g. net.travis-harper.bridgetracker)."
   type        = string
   default     = ""
 }
