@@ -53,3 +53,14 @@ resource "aws_iam_role_policy" "lambda" {
   role   = aws_iam_role.lambda.id
   policy = data.aws_iam_policy_document.lambda_inline.json
 }
+
+# The GitHub Actions deploy role itself is bootstrap-managed (it has to exist
+# before CI can run terraform), but its inline policy is owned here so SSM /
+# IAM / etc. grants flow through PRs instead of out-of-band aws cli calls.
+# The role grants iam:PutRolePolicy on role/bridge-tracker-* — so it can
+# rewrite its own policy on apply.
+resource "aws_iam_role_policy" "gha_apply" {
+  name   = "terraform-deploy"
+  role   = "bridge-tracker-gha-apply"
+  policy = file("${path.module}/gha-apply-policy.json")
+}
