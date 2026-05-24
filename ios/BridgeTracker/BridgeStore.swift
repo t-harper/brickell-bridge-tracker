@@ -31,7 +31,7 @@ final class BridgeStore: ObservableObject {
             self.stats = stats
             self.errorMessage = nil
 
-            await LiveActivityController.shared.updateIfRunning(with: state)
+            await LiveActivityController.shared.updateIfRunning(with: state, stats: stats)
         } catch {
             self.errorMessage = (error as? LocalizedError)?.errorDescription
                 ?? error.localizedDescription

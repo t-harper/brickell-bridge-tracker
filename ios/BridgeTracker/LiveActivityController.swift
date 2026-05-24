@@ -25,7 +25,7 @@ final class LiveActivityController {
 
     var isRunning: Bool { activity != nil }
 
-    func start(with state: BridgeState) async throws {
+    func start(with state: BridgeState, stats: BridgeStats? = nil) async throws {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
             throw LiveActivityStartError.notAuthorized
         }
@@ -36,11 +36,7 @@ final class LiveActivityController {
             roadway: state.metadata.roadway
         )
         let content = ActivityContent(
-            state: BridgeActivityAttributes.ContentState(
-                status: state.status,
-                statusChangedAt: state.statusChangedAt,
-                lastPolledAt: state.lastPolledAt
-            ),
+            state: Self.contentState(from: state, stats: stats),
             staleDate: Date().addingTimeInterval(15 * 60)
         )
 
@@ -57,17 +53,26 @@ final class LiveActivityController {
         }
     }
 
-    func updateIfRunning(with state: BridgeState) async {
+    func updateIfRunning(with state: BridgeState, stats: BridgeStats? = nil) async {
         guard let act = activity else { return }
         let content = ActivityContent(
-            state: BridgeActivityAttributes.ContentState(
-                status: state.status,
-                statusChangedAt: state.statusChangedAt,
-                lastPolledAt: state.lastPolledAt
-            ),
+            state: Self.contentState(from: state, stats: stats),
             staleDate: Date().addingTimeInterval(15 * 60)
         )
         await act.update(content)
+    }
+
+    private static func contentState(
+        from state: BridgeState,
+        stats: BridgeStats?
+    ) -> BridgeActivityAttributes.ContentState {
+        BridgeActivityAttributes.ContentState(
+            status: state.status,
+            statusChangedAt: state.statusChangedAt,
+            lastPolledAt: state.lastPolledAt,
+            predictedNextOpenAt: stats?.predictedNextOpenAt,
+            predictedNextCloseAt: stats?.predictedNextCloseAt
+        )
     }
 
     func stop() async {

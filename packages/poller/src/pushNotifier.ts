@@ -1,9 +1,56 @@
 import { ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
-import type { BridgeEvent, BridgeState } from "@bridge-tracker/shared";
-import { ddb } from "./awsClients.js";
+import { GetObjectCommand, NoSuchKey } from "@aws-sdk/client-s3";
+import type {
+  BridgeEvent,
+  BridgeState,
+  PrecomputedAggregates,
+} from "@bridge-tracker/shared";
+import { ddb, s3 } from "./awsClients.js";
 import { sendLiveActivityPush } from "./apns.js";
+import { PRECOMPUTED_KEY } from "./precompute.js";
 
 const DEVICES_TABLE = () => process.env.DEVICES_TABLE;
+const HISTORY_BUCKET = () => process.env.HISTORY_BUCKET;
+
+async function readPrecomputed(): Promise<PrecomputedAggregates | null> {
+  const bucket = HISTORY_BUCKET();
+  if (!bucket) return null;
+  try {
+    const r = await s3.send(
+      new GetObjectCommand({ Bucket: bucket, Key: PRECOMPUTED_KEY }),
+    );
+    const body = (await r.Body?.transformToString()) ?? "";
+    return JSON.parse(body) as PrecomputedAggregates;
+  } catch (err) {
+    if (err instanceof NoSuchKey || (err as { name?: string }).name === "NoSuchKey") {
+      return null;
+    }
+    throw err;
+  }
+}
+
+// Same math as liveStateFields() in shared/aggregate.ts. Inlined here to avoid
+// exporting an internal helper just to call it once.
+function predictionsFor(
+  state: BridgeState,
+  pre: PrecomputedAggregates | null,
+): { predictedNextOpenAt: string | null; predictedNextCloseAt: string | null } {
+  if (!pre) return { predictedNextOpenAt: null, predictedNextCloseAt: null };
+  const sinceMs = new Date(state.statusChangedAt).getTime();
+  const isUp = state.status === "UP";
+  const medianGap = pre.breakdown.medianGapBetweenOpensSec;
+  const avgOpenDur = pre.avgOpenDurationSec;
+  return {
+    predictedNextOpenAt:
+      !isUp && medianGap != null
+        ? new Date(sinceMs + medianGap * 1000).toISOString()
+        : null,
+    predictedNextCloseAt:
+      isUp && avgOpenDur != null
+        ? new Date(sinceMs + avgOpenDur * 1000).toISOString()
+        : null,
+  };
+}
 
 interface DeviceRecord {
   pk: "DEVICE";
@@ -32,11 +79,13 @@ export async function pushLiveActivityUpdates(state: BridgeState, event: BridgeE
   if (!DEVICES_TABLE()) return;
   if (!process.env.APNS_KEY_PARAM_NAME) return;
 
-  const devices = await scanDevices();
+  const [devices, pre] = await Promise.all([scanDevices(), readPrecomputed()]);
+  const predictions = predictionsFor(state, pre);
   const contentState = {
     status: state.status,
     statusChangedAt: state.statusChangedAt,
     lastPolledAt: state.lastPolledAt,
+    ...predictions,
   };
   const staleDate = Math.floor(Date.now() / 1000) + 15 * 60;
   const eventType: "update" | "end" = event ? "update" : "update";

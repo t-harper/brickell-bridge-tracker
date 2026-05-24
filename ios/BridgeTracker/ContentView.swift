@@ -69,7 +69,7 @@ struct ContentView: View {
                     if liveActivityRunning {
                         await LiveActivityController.shared.stop()
                     } else if let state = store.state {
-                        try await LiveActivityController.shared.start(with: state)
+                        try await LiveActivityController.shared.start(with: state, stats: store.stats)
                     }
                 } catch {
                     liveActivityError = (error as? LocalizedError)?.errorDescription

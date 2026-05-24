@@ -32,15 +32,27 @@ struct BridgeLiveActivity: Widget {
                     }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    HStack {
-                        Text(context.state.status.isTrafficStopped
-                             ? "Traffic stopped"
-                             : "Open to traffic")
-                            .font(.callout.bold())
-                        Spacer()
-                        Text("for \(context.state.statusDurationString())")
-                            .font(.caption.monospacedDigit())
+                    VStack(spacing: 2) {
+                        HStack {
+                            Text(context.state.status.isTrafficStopped
+                                 ? "Traffic stopped"
+                                 : "Open to traffic")
+                                .font(.callout.bold())
+                            Spacer()
+                            Text("for \(context.state.statusDurationString())")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                        if let eta = futurePrediction(context.state) {
+                            HStack {
+                                Text(eta.label)
+                                Spacer()
+                                Text(eta.date, style: .relative)
+                                    .monospacedDigit()
+                            }
+                            .font(.caption2)
                             .foregroundStyle(.secondary)
+                        }
                     }
                 }
             } compactLeading: {
@@ -64,6 +76,22 @@ struct BridgeLiveActivity: Widget {
         case .up: return .red
         case .down: return .green
         case .unknown: return .gray
+        }
+    }
+
+    fileprivate func futurePrediction(
+        _ state: BridgeActivityAttributes.ContentState
+    ) -> (label: String, date: Date)? {
+        let now = Date()
+        switch state.status {
+        case .down:
+            guard let d = state.predictedNextOpenAt, d > now else { return nil }
+            return ("Next opening", d)
+        case .up:
+            guard let d = state.predictedNextCloseAt, d > now else { return nil }
+            return ("Expected open to traffic", d)
+        case .unknown:
+            return nil
         }
     }
 
@@ -108,9 +136,35 @@ struct LockScreenLiveActivityView: View {
                 }
                 Spacer()
             }
+            if let eta = futurePrediction(context.state) {
+                HStack {
+                    Text(eta.label)
+                    Spacer()
+                    Text(eta.date, style: .relative)
+                        .monospacedDigit()
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+
+    fileprivate func futurePrediction(
+        _ state: BridgeActivityAttributes.ContentState
+    ) -> (label: String, date: Date)? {
+        let now = Date()
+        switch state.status {
+        case .down:
+            guard let d = state.predictedNextOpenAt, d > now else { return nil }
+            return ("Next opening", d)
+        case .up:
+            guard let d = state.predictedNextCloseAt, d > now else { return nil }
+            return ("Expected open to traffic", d)
+        case .unknown:
+            return nil
+        }
     }
 
     private func color(for status: BridgeStatus) -> Color {

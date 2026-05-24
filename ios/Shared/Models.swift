@@ -78,4 +78,6 @@ public struct BridgeStats: Codable, Sendable, Hashable {
     public let longestOpenDurationSec: Int?
     public let currentStatus: BridgeStatus
     public let currentStatusSinceSec: Int
+    public let predictedNextOpenAt: Date?
+    public let predictedNextCloseAt: Date?
 }
