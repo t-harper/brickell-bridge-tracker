@@ -1,0 +1,49 @@
+name: OpenSSF Scorecard
+
+on:
+  schedule:
+    - cron: "0 13 * * 1"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Workflow-level perms stay minimal. The scorecard-action webapp verifies
+# that elevated perms are job-scoped (not workflow-global) before signing
+# the published score, so security-events/id-token/actions go on the job.
+permissions:
+  contents: read
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      security-events: write
+      id-token: write
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Scorecard needs the full ref to inspect branch protection.
+          persist-credentials: false
+
+      - uses: ossf/scorecard-action@v2.4.3
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # Publishing makes the score visible on the OSSF site and the
+          # repo's Insights tab; free for public repos.
+          publish_results: true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scorecard-results
+          path: results.sarif
+          retention-days: 7
+
+      - uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+          category: scorecard
