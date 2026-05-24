@@ -19,8 +19,6 @@ settings:
     GENERATE_INFOPLIST_FILE: YES
     ENABLE_PREVIEWS: YES
     CODE_SIGN_STYLE: Automatic
-    # API base URL. Override per-configuration if you like.
-    API_BASE_URL: "http://localhost:3001"
 
 targets:
   BridgeTracker:
@@ -46,7 +44,6 @@ targets:
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "Shows your location relative to the Brickell Avenue Bridge."
         INFOPLIST_KEY_NSUserActivityTypes: "BridgeStatusIntent"
         INFOPLIST_KEY_CFBundleURLTypes_Generation: NO
-        INFOPLIST_KEY_API_BASE_URL: "$(API_BASE_URL)"
     preBuildScripts:
       - name: SwiftLint (optional)
         script: |

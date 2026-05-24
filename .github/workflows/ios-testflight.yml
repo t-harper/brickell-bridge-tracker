@@ -75,6 +75,23 @@ jobs:
           chmod 600 "$KEY_PATH"
           echo "KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
 
+      # Bake the API URL into a Swift constant. Tried piping via
+      # INFOPLIST_KEY_API_BASE_URL → Bundle.main.object(forInfoDictionaryKey:)
+      # but Xcode's auto-Info.plist generator only translates that prefix for
+      # Apple-recognized keys, so custom keys silently disappear and the app
+      # fell through to its localhost fallback on real devices.
+      - name: Bake API URL into BuildConfig.swift
+        working-directory: ios
+        run: |
+          cat > Shared/BuildConfig.swift <<EOF
+          import Foundation
+
+          enum BuildConfig {
+              static let apiBaseURL = "${API_BASE_URL}"
+          }
+          EOF
+          grep apiBaseURL Shared/BuildConfig.swift
+
       - name: Build archive
         working-directory: ios
         run: |
@@ -85,7 +102,6 @@ jobs:
             -destination "generic/platform=iOS" \
             -archivePath build/BridgeTracker.xcarchive \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            API_BASE_URL="$API_BASE_URL" \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             -authenticationKeyPath "$KEY_PATH" \
             -authenticationKeyID "$ASC_API_KEY_ID" \

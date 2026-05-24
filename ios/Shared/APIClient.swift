@@ -48,9 +48,7 @@ public actor APIClient {
     }
 
     private static func resolveBaseURL() -> URL {
-        if let s = Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") as? String,
-           let url = URL(string: s), !s.isEmpty { return url }
-        return URL(string: "http://localhost:3001")!
+        URL(string: BuildConfig.apiBaseURL)!
     }
 
     public func getStatus() async throws -> BridgeState {

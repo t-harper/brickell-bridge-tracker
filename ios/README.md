@@ -33,15 +33,16 @@ Native SwiftUI app for the Brickell Avenue Bridge tracker. Minimum iOS **17.0**.
 
 ## Configure the API base URL
 
-`ios/project.yml` defines `API_BASE_URL`, injected into `Info.plist` and consumed by
-`Shared/APIClient.swift`.
+The URL lives in `Shared/BuildConfig.swift` as a Swift constant and is consumed by
+`Shared/APIClient.swift`. CI overwrites this file on every archive build using the
+`API_BASE_URL` workflow input (default `https://bridge.travis-harper.net`).
+
+For local builds, edit `BuildConfig.swift` directly:
 
 - Simulator → host: keep the default `http://localhost:3001` and run `npm run dev`.
-- Real device on the same Wi-Fi: set `API_BASE_URL` to `http://<mac-lan-ip>:5173`
+- Real device on the same Wi-Fi: set it to `http://<mac-lan-ip>:5173`
   (Vite also proxies `/api` correctly).
-- Prod: set to your API Gateway invoke URL (e.g. `https://abc123.execute-api.us-east-1.amazonaws.com`).
-
-Edit in `project.yml` and re-run `xcodegen generate`, or override per-target in Xcode build settings.
+- Prod: set to your public API URL.
 
 ## Wiring APNs (for Live Activity remote updates)
 
