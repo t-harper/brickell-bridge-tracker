@@ -35,14 +35,3 @@ public struct BridgeActivityAttributes: ActivityAttributes {
         self.roadway = roadway
     }
 }
-
-public extension BridgeActivityAttributes.ContentState {
-    func statusDurationString(now: Date = Date()) -> String {
-        let secs = Int(max(0, now.timeIntervalSince(statusChangedAt)))
-        if secs < 60 { return "\(secs)s" }
-        let m = secs / 60
-        if m < 60 { return "\(m)m" }
-        let h = m / 60
-        return "\(h)h \(m % 60)m"
-    }
-}

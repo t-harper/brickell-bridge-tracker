@@ -52,6 +52,27 @@ function predictionsFor(
   };
 }
 
+// Mirror of staleDate(for:stats:) in LiveActivityController.swift: stay fresh
+// until the predicted next change (plus 10 min slack), but never grey out sooner
+// than a 30-minute floor. The on-device countdown keeps ticking without a push,
+// so the stale date is a backstop for a missed update, not a refresh timer.
+function computeStaleDate(
+  state: BridgeState,
+  predictions: { predictedNextOpenAt: string | null; predictedNextCloseAt: string | null },
+): number {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const floor = nowSec + 30 * 60;
+  const predictedISO =
+    state.status === "UP"
+      ? predictions.predictedNextCloseAt
+      : state.status === "DOWN"
+        ? predictions.predictedNextOpenAt
+        : null;
+  if (!predictedISO) return floor;
+  const predictedSec = Math.floor(new Date(predictedISO).getTime() / 1000) + 10 * 60;
+  return Math.max(predictedSec, floor);
+}
+
 interface DeviceRecord {
   pk: "DEVICE";
   sk: string;
@@ -87,7 +108,7 @@ export async function pushLiveActivityUpdates(state: BridgeState, event: BridgeE
     lastPolledAt: state.lastPolledAt,
     ...predictions,
   };
-  const staleDate = Math.floor(Date.now() / 1000) + 15 * 60;
+  const staleDate = computeStaleDate(state, predictions);
   const eventType: "update" | "end" = event ? "update" : "update";
 
   const pushes = devices.flatMap((device) =>

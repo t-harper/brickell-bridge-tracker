@@ -37,7 +37,7 @@ final class LiveActivityController {
         )
         let content = ActivityContent(
             state: Self.contentState(from: state, stats: stats),
-            staleDate: Date().addingTimeInterval(15 * 60)
+            staleDate: Self.staleDate(for: state, stats: stats)
         )
 
         do {
@@ -57,9 +57,27 @@ final class LiveActivityController {
         guard let act = activity else { return }
         let content = ActivityContent(
             state: Self.contentState(from: state, stats: stats),
-            staleDate: Date().addingTimeInterval(15 * 60)
+            staleDate: Self.staleDate(for: state, stats: stats)
         )
         await act.update(content)
+    }
+
+    // Keep the activity looking fresh until we'd expect the next change (plus a
+    // little slack): if that moment passes with no APNs update the data really
+    // might be stale, so letting the system dim it then is meaningful. Never go
+    // stale sooner than a 30-minute floor — the on-device countdown keeps
+    // ticking correctly without a push, so a near-term or missing prediction
+    // shouldn't grey the activity out.
+    private static func staleDate(for state: BridgeState, stats: BridgeStats?) -> Date {
+        let predicted: Date?
+        switch state.status {
+        case .down: predicted = stats?.predictedNextOpenAt
+        case .up: predicted = stats?.predictedNextCloseAt
+        case .unknown: predicted = nil
+        }
+        let floor = Date().addingTimeInterval(30 * 60)
+        guard let predicted else { return floor }
+        return max(predicted.addingTimeInterval(10 * 60), floor)
     }
 
     private static func contentState(
