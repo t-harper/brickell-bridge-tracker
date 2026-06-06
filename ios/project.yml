@@ -31,9 +31,9 @@ targets:
       - path: BridgeTracker/Assets.xcassets
     dependencies:
       - target: BridgeWidgetExtension
-    # Xcode swaps "development" → "production" automatically when archiving
-    # with a Distribution profile (TestFlight, App Store), so the same value
-    # works for local dev builds and TestFlight uploads.
+    # Debug (local dev) uses the development APNs entitlement + automatic
+    # signing. The Release config (CI archive) overrides to manual distribution
+    # signing with a production aps-environment file (see configs.Release below).
     entitlements:
       path: BridgeTracker/BridgeTracker.entitlements
       properties:
@@ -54,6 +54,14 @@ targets:
         # Skips the App Store Connect export compliance prompt. The app only
         # uses standard HTTPS via URLSession (exempt under US export rules).
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+      configs:
+        # CI archives Release with the stored Apple Distribution cert + App Store
+        # profile (durable signing — no per-run certificate churn).
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: "Apple Distribution"
+          PROVISIONING_PROFILE_SPECIFIER: "Bridge Tracker App Store"
+          CODE_SIGN_ENTITLEMENTS: BridgeTracker/Release.entitlements
     preBuildScripts:
       - name: SwiftLint (optional)
         script: |
@@ -72,3 +80,8 @@ targets:
         INFOPLIST_FILE: BridgeWidgetExtension/Info.plist
         SKIP_INSTALL: YES
         CODE_SIGN_STYLE: Automatic
+      configs:
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: "Apple Distribution"
+          PROVISIONING_PROFILE_SPECIFIER: "Bridge Tracker Widget AppStore"
