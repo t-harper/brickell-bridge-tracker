@@ -18,6 +18,6 @@
     "@bridge-tracker/shared": "*"
   },
   "devDependencies": {
-    "@types/aws-lambda": "^8.10.145"
+    "@types/aws-lambda": "^8.10.162"
   }
 }
