@@ -24,7 +24,7 @@ jobs:
       contents: read
       actions: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # Scorecard needs the full ref to inspect branch protection.
           persist-credentials: false
