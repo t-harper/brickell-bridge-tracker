@@ -84,7 +84,7 @@ jobs:
         env:
           TF_VAR_apns_p8_pem: ${{ secrets.APNS_KEY_P8 }}
         run: |
-          if [[ -z "${TF_VAR_apns_p8_pem:-}" ]]; then
+          if [[ ! "${TF_VAR_apns_p8_pem:-}" =~ [^[:space:]] ]]; then
             echo "::error::APNS_KEY_P8 is missing; refusing to remove production APNs configuration."
             echo "exitcode=1" >> "$GITHUB_OUTPUT"
             exit 1

@@ -86,7 +86,7 @@ jobs:
           # the SSM path, so the key value never appears in build output.
           TF_VAR_apns_p8_pem: ${{ secrets.APNS_KEY_P8 }}
         run: |
-          if [[ -z "${TF_VAR_apns_p8_pem:-}" ]]; then
+          if [[ ! "${TF_VAR_apns_p8_pem:-}" =~ [^[:space:]] ]]; then
             echo "::error::APNS_KEY_P8 is missing; refusing to remove production APNs configuration."
             exit 1
           fi

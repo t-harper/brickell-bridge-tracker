@@ -17,14 +17,13 @@ function terraformCommand(workflow, stepName) {
 }
 
 for (const [workflow, step] of [['plan.yml', 'Terraform plan'], ['deploy.yml', 'Terraform apply']]) {
-  for (const configured of [false, true]) {
-    test(`${workflow} ${configured ? 'runs Terraform with' : 'blocks Terraform without'} the production APNs key`, () => {
+  for (const [input, key, configured] of [['missing', '', false], ['whitespace-only', ' \t\n ', false], ['configured', 'test-only-key-marker', true]]) {
+    test(`${workflow} ${configured ? 'runs Terraform with' : 'blocks Terraform without'} the production APNs key (${input})`, () => {
       const directory = mkdtempSync(join(tmpdir(), 'bridge-apns-guard-test-'));
       try {
         const executable = join(directory, 'terraform');
         const marker = join(directory, 'terraform-invoked');
         writeFileSync(executable, '#!/usr/bin/env bash\n: > "$TF_TEST_MARKER"\n', { mode: 0o700 });
-        const key = configured ? 'test-only-key-marker' : '';
         const result = spawnSync('bash', ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', terraformCommand(workflow, step)], {
           cwd: directory, encoding: 'utf8',
           env: { ...process.env, BASH_ENV: '', ENV: '', PATH: `${directory}:${process.env.PATH}`, TF_TEST_MARKER: marker,
