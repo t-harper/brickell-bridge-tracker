@@ -66,6 +66,9 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
 
+      - name: Test Lambda artifact key safety
+        run: node --test scripts/lambda-artifact-keys.test.mjs
+
       - name: Terraform init
         working-directory: infra
         run: terraform init -no-color

@@ -30,16 +30,18 @@ resource "aws_s3_bucket" "artifacts" {
   force_destroy = true
 }
 
+# Use path-safe hex for object keys: repeated slashes in base64 digests can
+# be normalized during upload. Lambda source_code_hash remains base64 below.
 resource "aws_s3_object" "poller_zip" {
   bucket = aws_s3_bucket.artifacts.bucket
-  key    = "poller-${filebase64sha256(local.poller_zip)}.zip"
+  key    = "poller-${filesha256(local.poller_zip)}.zip"
   source = local.poller_zip
   etag   = filemd5(local.poller_zip)
 }
 
 resource "aws_s3_object" "api_zip" {
   bucket = aws_s3_bucket.artifacts.bucket
-  key    = "api-${filebase64sha256(local.api_zip)}.zip"
+  key    = "api-${filesha256(local.api_zip)}.zip"
   source = local.api_zip
   etag   = filemd5(local.api_zip)
 }
