@@ -1,6 +1,6 @@
 name: iOS to TestFlight
 
-# Builds the iOS app on the private Mac and uploads to App Store Connect →
+# Builds the iOS app on the existing hosted Mac and uploads to App Store Connect →
 # TestFlight when upload is enabled. Manual runs default to build-only.
 # Uploads can notify existing automatically distributing internal groups;
 # other groups require an explicit Add Builds step after processing.
@@ -36,7 +36,9 @@ permissions:
 
 jobs:
   build-and-upload:
-    runs-on: [self-hosted, macOS, ARM64]
+    # This repository is public; retain its hosted runner rather than adding
+    # it to the private repository runner pool.
+    runs-on: macos-latest
     concurrency:
       group: brickell-ios-signing
       cancel-in-progress: false
@@ -72,7 +74,7 @@ jobs:
 
       # Apple requires apps to be built with the iOS 26 SDK or later for
       # App Store Connect uploads. Select an installed SDK for this job only;
-      # never change the persistent Mac's global xcode-select setting.
+      # never change the runner's global xcode-select setting.
       - name: Select supported Xcode
         run: |
           DEVELOPER_DIR=$(python3 <<'PY'
@@ -120,17 +122,12 @@ jobs:
             Tests/APIClientTests.swift -o "$RUNNER_TEMP/bridge-api-tests"
           "$RUNNER_TEMP/bridge-api-tests"
 
-      - name: Check XcodeGen
+      - name: Install XcodeGen if needed
         run: |
-          if command -v xcodegen >/dev/null; then
-            xcodegen --version
-          elif [ -x /opt/homebrew/bin/xcodegen ]; then
-            echo /opt/homebrew/bin >> "$GITHUB_PATH"
-            /opt/homebrew/bin/xcodegen --version
-          else
-            echo "::error::Install XcodeGen on the private runner before building."
-            exit 1
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install xcodegen
           fi
+          xcodegen --version
 
       - name: Generate Xcode project
         working-directory: ios

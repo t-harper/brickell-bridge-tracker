@@ -82,9 +82,9 @@ xcrun swiftc -swift-version 5 -parse-as-library \
 /tmp/bridge-api-tests
 ```
 
-The `iOS to TestFlight` workflow targets the existing private Mac runner using
-`[self-hosted, macOS, ARM64]`. That runner must be available to this repository.
-It supports a signed build without distribution:
+The `iOS to TestFlight` workflow uses the existing GitHub-hosted `macos-latest`
+runner for this public repository. It does not require the local MacBook or a new
+self-hosted registration. It supports a signed build without distribution:
 
 ```sh
 gh workflow run ios-testflight.yml --ref <reviewed-branch> \
