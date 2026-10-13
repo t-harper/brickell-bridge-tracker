@@ -1,9 +1,9 @@
 name: iOS to TestFlight
 
-# Builds the iOS app on macos-latest and uploads to App Store Connect →
-# TestFlight. From there, internal testers (you, plus anyone you add under
-# Users and Access) get the build pushed to their device. External testing
-# groups require Apple's beta review (~24h first time, faster on updates).
+# Builds the iOS app on the private Mac and uploads to App Store Connect →
+# TestFlight when upload is enabled. Manual runs default to build-only.
+# Uploads can notify existing automatically distributing internal groups;
+# other groups require an explicit Add Builds step after processing.
 #
 # Required GitHub secrets:
 #   APPLE_TEAM_ID       — 10-char Team ID from developer.apple.com → Membership
@@ -17,7 +17,7 @@ name: iOS to TestFlight
 on:
   push:
     branches: [main]
-    paths: ["ios/**", ".github/workflows/ios-testflight.yml"]
+    paths: ["ios/**", ".github/workflows/ios-testflight.yml", "scripts/testflight-preflight*.mjs"]
   workflow_dispatch:
     inputs:
       api_base_url:
@@ -25,13 +25,21 @@ on:
         required: true
         default: "https://bridge.travis-harper.net"
         type: string
+      upload:
+        description: "Upload to TestFlight (may notify existing testers); false builds an IPA only"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
 jobs:
   build-and-upload:
-    runs-on: macos-latest
+    runs-on: [self-hosted, macOS, ARM64]
+    concurrency:
+      group: brickell-ios-signing
+      cancel-in-progress: false
     timeout-minutes: 30
     env:
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -39,6 +47,7 @@ jobs:
       ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
       APPLE_APP_ID: ${{ secrets.APPLE_APP_ID }}
       API_BASE_URL: ${{ inputs.api_base_url || 'https://bridge.travis-harper.net' }}
+      UPLOAD_TO_TESTFLIGHT: ${{ github.event_name == 'push' || inputs.upload }}
       # TestFlight requires a strictly-increasing build number within a given
       # marketing version. github.run_number is monotonic per workflow file,
       # so reuse across builds is impossible without a manual reset.
@@ -46,31 +55,104 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Apple requires apps to be built with the iOS 26 SDK or later for
-      # App Store Connect uploads. The macos-latest runner ships multiple
-      # Xcodes; default may be an older one, so pick the newest installed.
-      - name: Select latest Xcode
-        run: |
-          XCODE=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
-          sudo xcode-select -s "$XCODE/Contents/Developer"
-          xcodebuild -version
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
+      - name: Test release preflight
+        run: node --test scripts/testflight-preflight.test.mjs
+
+      # Check account agreements and exact app access before a costly archive.
+      # Build-only verification uses the existing signing assets without ASC.
+      - name: Check App Store Connect access
+        if: env.UPLOAD_TO_TESTFLIGHT == 'true'
+        env:
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+        run: node scripts/testflight-preflight.mjs
+
+      # Apple requires apps to be built with the iOS 26 SDK or later for
+      # App Store Connect uploads. Select an installed SDK for this job only;
+      # never change the persistent Mac's global xcode-select setting.
+      - name: Select supported Xcode
+        run: |
+          DEVELOPER_DIR=$(python3 <<'PY'
+          import glob
+          import os
+          import subprocess
+          import sys
+
+          candidates = glob.glob('/Applications/Xcode*.app/Contents/Developer')
+          try:
+              current = subprocess.check_output(
+                  ['xcode-select', '-p'], text=True, stderr=subprocess.DEVNULL,
+              ).strip()
+              candidates.append(current)
+          except subprocess.CalledProcessError:
+              pass
+          supported = []
+          for candidate in set(candidates):
+              try:
+                  sdk = subprocess.check_output(
+                      ['xcrun', '--sdk', 'iphoneos', '--show-sdk-version'],
+                      env={**os.environ, 'DEVELOPER_DIR': candidate},
+                      text=True, stderr=subprocess.DEVNULL,
+                  ).strip()
+                  version = tuple(int(part) for part in sdk.split('.'))
+                  if version >= (26,):
+                      supported.append((version, candidate))
+              except (ValueError, subprocess.CalledProcessError):
+                  pass
+          if not supported:
+              sys.exit('No installed Xcode provides the required iOS 26 SDK or later.')
+          print(max(supported)[1])
+          PY
+          )
+          export DEVELOPER_DIR
+          printf 'DEVELOPER_DIR=%s\n' "$DEVELOPER_DIR" >> "$GITHUB_ENV"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Test mobile API requests
+        working-directory: ios
+        run: |
+          xcrun swiftc -swift-version 5 -parse-as-library \
+            Shared/APIClient.swift Shared/Models.swift Shared/BuildConfig.swift \
+            Tests/APIClientTests.swift -o "$RUNNER_TEMP/bridge-api-tests"
+          "$RUNNER_TEMP/bridge-api-tests"
+
+      - name: Check XcodeGen
+        run: |
+          if command -v xcodegen >/dev/null; then
+            xcodegen --version
+          elif [ -x /opt/homebrew/bin/xcodegen ]; then
+            echo /opt/homebrew/bin >> "$GITHUB_PATH"
+            /opt/homebrew/bin/xcodegen --version
+          else
+            echo "::error::Install XcodeGen on the private runner before building."
+            exit 1
+          fi
 
       - name: Generate Xcode project
         working-directory: ios
         run: xcodegen generate
 
+      - name: Prepare isolated signing workspace
+        run: |
+          umask 077
+          SIGNING_DIR=$(mktemp -d "$RUNNER_TEMP/bridge-signing-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.XXXXXX")
+          printf 'SIGNING_DIR=%s\nAPI_PRIVATE_KEYS_DIR=%s/private_keys\n' \
+            "$SIGNING_DIR" "$SIGNING_DIR" >> "$GITHUB_ENV"
+
       # Secret comes through env so it never appears in the script text
       # (GitHub also masks it in logs, but env-passing is the safer pattern).
       - name: Write App Store Connect API key
+        if: env.UPLOAD_TO_TESTFLIGHT == 'true'
         env:
           ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
         run: |
-          KEY_DIR=~/.appstoreconnect/private_keys
-          mkdir -p "$KEY_DIR"
-          KEY_PATH="$KEY_DIR/AuthKey_${ASC_API_KEY_ID}.p8"
+          umask 077
+          mkdir "$API_PRIVATE_KEYS_DIR"
+          KEY_PATH="$API_PRIVATE_KEYS_DIR/AuthKey_${ASC_API_KEY_ID}.p8"
           printf '%s' "$ASC_API_KEY_P8" > "$KEY_PATH"
           chmod 600 "$KEY_PATH"
           echo "KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
@@ -103,21 +185,64 @@ jobs:
           BUILD_PROVISION_PROFILE_WIDGET_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_WIDGET_BASE64 }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
-          CERT_PATH="$RUNNER_TEMP/dist_cert.p12"
-          KC_PATH="$RUNNER_TEMP/app-signing.keychain-db"
-          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$CERT_PATH"
+          umask 077
+          # Capture original settings and planned, unique paths before any
+          # keychain mutation or secret write, including for failure cleanup.
+          python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import shlex
+          import subprocess
+
+          directory = Path(os.environ['SIGNING_DIR'])
+          profiles = Path.home() / 'Library/MobileDevice/Provisioning Profiles'
+          destinations = [profiles / (directory.name + '-' + target + '.mobileprovision')
+                          for target in ('app', 'widget')]
+          if any(os.path.lexists(path) for path in destinations):
+              raise SystemExit('Refusing to overwrite existing provisioning profiles.')
+          state = {
+              'search': shlex.split(subprocess.check_output(
+                  ['security', 'list-keychains', '-d', 'user'], text=True)),
+              'default': shlex.split(subprocess.check_output(
+                  ['security', 'default-keychain', '-d', 'user'], text=True)),
+              'keychain': str(directory / 'app-signing.keychain-db'),
+              'profiles': [str(path) for path in destinations],
+          }
+          if len(state['default']) != 1:
+              raise SystemExit('Unable to capture the original default keychain.')
+          with (directory / 'state.json.tmp').open('x') as file:
+              json.dump(state, file)
+          (directory / 'state.json.tmp').replace(directory / 'state.json')
+          PY
+          CERT_PATH="$SIGNING_DIR/dist_cert.p12"
+          KC_PATH="$SIGNING_DIR/app-signing.keychain-db"
+          printf '%s' "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$CERT_PATH"
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KC_PATH"
           security set-keychain-settings -lut 21600 "$KC_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KC_PATH"
           security import "$CERT_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KC_PATH"
           security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KC_PATH" >/dev/null
-          EXISTING=$(security list-keychains -d user | sed -e 's/^[[:space:]]*//' -e 's/"//g')
-          security list-keychains -d user -s "$KC_PATH" $EXISTING
-          security default-keychain -s "$KC_PATH"
-          PROFILES_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
-          mkdir -p "$PROFILES_DIR"
-          echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode > "$PROFILES_DIR/app.mobileprovision"
-          echo -n "$BUILD_PROVISION_PROFILE_WIDGET_BASE64" | base64 --decode > "$PROFILES_DIR/widget.mobileprovision"
+          python3 <<'PY'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+
+          state = json.loads((Path(os.environ['SIGNING_DIR']) / 'state.json').read_text())
+          subprocess.run(['security', 'list-keychains', '-d', 'user', '-s',
+                          state['keychain'], *state['search']], check=True)
+          subprocess.run(['security', 'default-keychain', '-d', 'user', '-s',
+                          state['keychain']], check=True)
+          for destination, variable in zip(state['profiles'], (
+              'BUILD_PROVISION_PROFILE_BASE64', 'BUILD_PROVISION_PROFILE_WIDGET_BASE64',
+          )):
+              path = Path(destination)
+              path.parent.mkdir(parents=True, exist_ok=True)
+              with path.open('xb') as file:
+                  file.write(base64.b64decode(''.join(os.environ[variable].split()), validate=True))
+          PY
           echo "Signing identities available:"
           security find-identity -v -p codesigning "$KC_PATH"
 
@@ -171,7 +296,27 @@ jobs:
             -exportPath build/ipa \
             -exportOptionsPlist build/ExportOptions.plist
 
+      - name: Preserve signed IPA
+        uses: actions/upload-artifact@v7
+        with:
+          name: Brickell-Bridge-${{ github.run_number }}
+          path: ios/build/ipa/*.ipa
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Build-only summary
+        if: env.UPLOAD_TO_TESTFLIGHT != 'true'
+        run: |
+          {
+            echo "## Signed build only"
+            echo "Build $BUILD_NUMBER archived and exported with the existing signing assets."
+            echo "Download the signed IPA from this run's artifact (retained for seven days)."
+            echo "No App Store Connect upload or tester distribution was requested."
+            echo "An App Store IPA cannot be installed directly; a TestFlight upload is still required."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload to TestFlight
+        if: env.UPLOAD_TO_TESTFLIGHT == 'true'
         working-directory: ios
         run: |
           IPA=$(find build/ipa -name '*.ipa' | head -1)
@@ -182,13 +327,14 @@ jobs:
           SIZE=$(du -h "$IPA" | cut -f1)
           echo "Uploading $IPA ($SIZE) build=$BUILD_NUMBER"
 
-          # altool reads the .p8 from ~/.appstoreconnect/private_keys/ based
-          # on the apiKey ID, which we wrote in the "Write API key" step.
+          # Explicit key selection avoids altool's earlier home-directory
+          # search locations; the Mac's existing keys are never replaced.
           xcrun altool --upload-app \
             -f "$IPA" \
             -t ios \
-            --apiKey "$ASC_API_KEY_ID" \
-            --apiIssuer "$ASC_API_ISSUER_ID"
+            --api-key "$ASC_API_KEY_ID" \
+            --api-issuer "$ASC_API_ISSUER_ID" \
+            --p8-file-path "$KEY_PATH"
 
           ASC_LINK="https://appstoreconnect.apple.com/apps/${APPLE_APP_ID}/testflight/ios"
           {
@@ -202,7 +348,51 @@ jobs:
             echo "| App Store Connect | [TestFlight builds]($ASC_LINK) |"
             echo ""
             echo "Apple processes the build (~5-15 min for first ingest, faster on subsequent)."
-            echo "Once it shows up in App Store Connect → TestFlight → iOS Builds, internal"
-            echo "testers can install it from the TestFlight app immediately. External groups"
-            echo "need beta review first (24h on the first version, minutes on updates)."
+            echo "After processing, verify the build's status and expiration in App Store Connect."
+            echo "Existing internal groups need automatic distribution enabled or Add Builds."
+            echo "External groups need Add Builds and any required beta review before testing."
+            echo "Upload success does not verify tester access or installation."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Restore keychain settings and remove job signing files
+        if: always() && env.SIGNING_DIR != ''
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import shutil
+          import subprocess
+          import sys
+
+          directory = Path(os.environ['SIGNING_DIR'])
+          if (directory.parent.resolve() != Path(os.environ['RUNNER_TEMP']).resolve()
+                  or not directory.name.startswith('bridge-signing-')):
+              sys.exit('Refusing cleanup outside the job signing workspace.')
+          failures = []
+          state_path = directory / 'state.json'
+          if state_path.exists():
+              state = json.loads(state_path.read_text())
+              commands = [
+                  ['security', 'list-keychains', '-d', 'user', '-s', *state['search']],
+                  ['security', 'default-keychain', '-d', 'user', '-s', *state['default']],
+              ]
+              if Path(state['keychain']).exists():
+                  commands.append(['security', 'delete-keychain', state['keychain']])
+              for command in commands:
+                  if subprocess.run(command).returncode:
+                      failures.append('Could not restore or remove the job keychain.')
+              for profile in state['profiles']:
+                  try:
+                      Path(profile).unlink(missing_ok=True)
+                  except OSError:
+                      failures.append('Could not remove a job provisioning profile.')
+          try:
+              shutil.rmtree(directory)
+          except FileNotFoundError:
+              pass
+          except OSError:
+              failures.append('Could not remove the job signing workspace.')
+          if failures:
+              sys.exit('\n'.join(failures))
+          PY
