@@ -56,12 +56,17 @@ public actor APIClient {
     }
 
     public func getHistory(days: Int = 7, minDurationSec: Int = 60) async throws -> [BridgeEvent] {
-        let resp: HistoryResponse = try await get("/api/bridges/brickell/history?days=\(days)&minDurationSec=\(minDurationSec)")
+        let resp: HistoryResponse = try await get("/api/bridges/brickell/history", queryItems: [
+            URLQueryItem(name: "days", value: String(days)),
+            URLQueryItem(name: "minDurationSec", value: String(minDurationSec)),
+        ])
         return resp.events
     }
 
     public func getStats(days: Int = 7) async throws -> BridgeStats {
-        try await get("/api/bridges/brickell/stats?days=\(days)")
+        try await get("/api/bridges/brickell/stats", queryItems: [
+            URLQueryItem(name: "days", value: String(days)),
+        ])
     }
 
     public func registerDevice(_ req: DeviceRegistrationRequest) async throws {
@@ -78,8 +83,8 @@ public actor APIClient {
 
     private struct EmptyResponse: Codable {}
 
-    private func get<T: Decodable>(_ path: String) async throws -> T {
-        try await request(path, method: "GET", body: Optional<EmptyResponse>.none)
+    private func get<T: Decodable>(_ path: String, queryItems: [URLQueryItem] = []) async throws -> T {
+        try await request(path, method: "GET", body: Optional<EmptyResponse>.none, queryItems: queryItems)
     }
     private func post<Body: Encodable, T: Decodable>(_ path: String, body: Body) async throws -> T {
         try await request(path, method: "POST", body: body)
@@ -89,9 +94,15 @@ public actor APIClient {
     }
 
     private func request<Body: Encodable, T: Decodable>(
-        _ path: String, method: String, body: Body?
+        _ path: String, method: String, body: Body?, queryItems: [URLQueryItem] = []
     ) async throws -> T {
-        let url = baseURL.appendingPathComponent(path)
+        // Query parameters must be attached separately: appendingPathComponent
+        // escapes "?" into the path and the backend falls back to its defaults.
+        guard var components = URLComponents(
+            url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false
+        ) else { throw APIError.transport(URLError(.badURL)) }
+        if !queryItems.isEmpty { components.queryItems = queryItems }
+        guard let url = components.url else { throw APIError.transport(URLError(.badURL)) }
         var req = URLRequest(url: url)
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
