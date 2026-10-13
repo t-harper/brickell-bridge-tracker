@@ -52,6 +52,9 @@ jobs:
 
       - run: npm test
 
+      - name: Test production APNs input guards
+        run: node --test scripts/production-apns-gate.test.mjs
+
       - name: Bundle Lambda artifacts
         run: npm run bundle
 
@@ -82,7 +85,12 @@ jobs:
           # .p8 contents land in SSM (SecureString) and the Lambda only needs
           # the SSM path, so the key value never appears in build output.
           TF_VAR_apns_p8_pem: ${{ secrets.APNS_KEY_P8 }}
-        run: terraform apply -auto-approve -no-color -var-file=envs/prod.tfvars
+        run: |
+          if [[ ! "${TF_VAR_apns_p8_pem:-}" =~ [^[:space:]] ]]; then
+            echo "::error::APNS_KEY_P8 is missing; refusing to remove production APNs configuration."
+            exit 1
+          fi
+          terraform apply -auto-approve -no-color -var-file=envs/prod.tfvars
 
       - name: Sync frontend to S3
         working-directory: infra

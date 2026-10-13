@@ -52,6 +52,9 @@ jobs:
 
       - run: npm test
 
+      - name: Test production APNs input guards
+        run: node --test scripts/production-apns-gate.test.mjs
+
       # Plan needs the freshly-built zips so source_code_hash diffs are accurate.
       - name: Bundle Lambda artifacts
         run: npm run bundle
@@ -81,6 +84,11 @@ jobs:
         env:
           TF_VAR_apns_p8_pem: ${{ secrets.APNS_KEY_P8 }}
         run: |
+          if [[ ! "${TF_VAR_apns_p8_pem:-}" =~ [^[:space:]] ]]; then
+            echo "::error::APNS_KEY_P8 is missing; refusing to remove production APNs configuration."
+            echo "exitcode=1" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
           set -o pipefail
           terraform plan -no-color -lock=false -var-file=envs/prod.tfvars 2>&1 | tee plan.txt
           echo "exitcode=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
@@ -105,5 +113,5 @@ jobs:
           gh pr comment "$PR_NUMBER" --body-file comment.md
 
       - name: Fail job if plan errored
-        if: steps.plan.outputs.exitcode == '1'
+        if: steps.plan.outcome != 'success' || steps.plan.outputs.exitcode == '1'
         run: exit 1
