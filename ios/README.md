@@ -69,6 +69,34 @@ foreground. Remote push updates require:
 The backend only pushes on **status-change events** (not every poll) to stay well under
 APNs Live Activity budget limits.
 
+## Simulator UI validation
+
+Run the existing workflow in simulator-only mode to validate the app without
+signing assets or a TestFlight upload:
+
+```sh
+gh workflow run ios-testflight.yml --ref <reviewed-branch> \
+  -f simulator_only=true -f upload=false
+```
+
+This mode creates a disposable iPhone simulator on the hosted Mac. It temporarily
+points the app at a loopback fixture API and allows local networking only in that
+runner's generated project. Device and activity registration requests stay local;
+the fixture never forwards requests. The committed API URL remains unchanged.
+
+The UI suite exercises status, map availability, stats, history, refresh, empty
+history, unknown status, partial failures, and recovery. A separate capability
+check exercises local Live Activity start/stop when the simulator supports it.
+Logs, request audit, screenshots in the XCTest result bundle, and app metadata are
+retained for seven days. Simulator checks do not establish physical-device
+installation, push delivery, or lock-screen behavior on the tester's iPhone.
+
+For local UI work, use the same fixture with a temporary local BuildConfig URL:
+`python3 scripts/ios-ui-fixture.py --port 8001`. Regenerate the Xcode project and run
+the `BridgeTrackerUITests` target using the shared `BridgeTracker` scheme. Restore
+the local API URL after the test; use the workflow's generated local-networking
+Info.plist overlay if App Transport Security blocks plain HTTP.
+
 ## TestFlight builds and access
 
 The workflow runs Foundation regression checks for the mobile API client before
@@ -118,7 +146,8 @@ credentials or recreate signing assets to work around it.
 
 Qualifying pushes to `main` still upload automatically. A merge also triggers the
 repository's production deployment workflow, so review that consequence separately.
-The build number increases with each workflow run, including build-only runs.
+The build number increases with each workflow run, including simulator-only and
+build-only runs.
 
 After upload, check [the app's TestFlight builds](https://appstoreconnect.apple.com/apps/6772673772/testflight/ios):
 

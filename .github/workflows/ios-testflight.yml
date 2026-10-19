@@ -617,7 +617,9 @@ jobs:
             -parallel-testing-enabled NO \
             -maximum-concurrent-test-simulator-destinations 1 \
             -only-testing:BridgeTrackerUITests \
-            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=- \
             2>&1 | tee "$SIM_WORK_DIR/evidence/xcodebuild.log"
 
       - name: Require a nonempty successful UI test result
@@ -638,6 +640,16 @@ jobs:
           print(f"Passed UI tests: {result['passedTests']}")
           PYRESULT
 
+      - name: Export UI screenshots for review
+        if: always() && env.SIM_WORK_DIR != ''
+        run: |
+          set -euo pipefail
+          if [[ -d "$SIM_WORK_DIR/evidence/TestResults.xcresult" ]]; then
+            xcrun xcresulttool export attachments \
+              --path "$SIM_WORK_DIR/evidence/TestResults.xcresult" \
+              --output-path "$SIM_WORK_DIR/evidence/attachments"
+          fi
+
       - name: Collect final fixture and built-app evidence
         if: always() && env.SIM_WORK_DIR != ''
         run: |
@@ -647,6 +659,7 @@ jobs:
           import os
           from pathlib import Path
           import plistlib
+          import subprocess
           import urllib.request
 
           directory = Path(os.environ['SIM_WORK_DIR'])
@@ -671,7 +684,31 @@ jobs:
               assert data.get('NSSupportsLiveActivities') is True
               assert data.get('ITSAppUsesNonExemptEncryption') is False
               assert 'UILaunchScreen' in data and 'UIApplicationSceneManifest' in data
+              signature = subprocess.run(
+                  ['/usr/bin/codesign', '--display', '--entitlements', '-', str(info.parent)],
+                  capture_output=True,
+              )
+              (evidence / 'app-entitlements.plist').write_bytes(signature.stdout)
+              (evidence / 'app-signature.txt').write_bytes(signature.stderr)
+              verification = subprocess.run(
+                  ['/usr/bin/codesign', '--verify', '--deep', '--strict', str(info.parent)],
+                  text=True, capture_output=True,
+              )
+              (evidence / 'signature-verification.json').write_text(json.dumps({
+                  'entitlementsExitCode': signature.returncode,
+                  'verificationExitCode': verification.returncode,
+                  'verificationOutput': verification.stdout + verification.stderr,
+              }, indent=2))
+              assert signature.returncode == 0 and verification.returncode == 0
           PY
+
+      - name: Collect scoped Live Activity diagnostics
+        if: always() && env.SIMULATOR_ID != ''
+        run: |
+          set -euo pipefail
+          xcrun simctl spawn "$SIMULATOR_ID" log show --last 15m --style compact \
+            --predicate 'subsystem == "net.travis-harper.bridgetracker" AND category == "LiveActivity"' \
+            > "$SIM_WORK_DIR/evidence/live-activity.log"
 
       - name: Remove only the job's simulator and fixture process
         if: always() && env.SIM_WORK_DIR != ''

@@ -29,7 +29,7 @@ struct BridgeMapView: View {
             Annotation("Brickell Bridge", coordinate: coordinate) {
                 Image(systemName: state.status.symbolName)
                     .font(.title)
-                    .foregroundStyle(state.status.isTrafficStopped ? .red : .green)
+                    .foregroundStyle(state.status == .up ? .red : state.status == .down ? .green : .gray)
                     .padding(6)
                     .background(.regularMaterial, in: .circle)
             }

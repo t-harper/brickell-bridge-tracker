@@ -28,7 +28,6 @@ final class BridgeTrackerUITests: XCTestCase {
         try await Self.control("reset", scenario: "down")
         let app = launchApp()
         defer { app.terminate() }
-        await captureSettledScreen("baseline-down", in: app)
 
         await expectLabel("bridge.status", contains: "Down", in: app)
         await expectLabel("bridge.traffic", contains: "Open to traffic", in: app)
@@ -41,6 +40,7 @@ final class BridgeTrackerUITests: XCTestCase {
         reveal(element("bridge.history", in: app), in: app)
         XCTAssertTrue(app.staticTexts["Up → Down"].exists)
         XCTAssertTrue(app.staticTexts["Down → Up"].exists)
+        attachScreenshot("baseline-down-history", in: app)
 
         reveal(element("bridge.status", in: app), in: app, scrollingDown: true)
         try await refresh(afterSwitchingTo: "empty-history", in: app)
@@ -77,12 +77,12 @@ final class BridgeTrackerUITests: XCTestCase {
         try await Self.control("reset", scenario: "unknown")
         let app = launchApp()
         defer { app.terminate() }
-        await captureSettledScreen("unknown-status", in: app)
 
         await expectLabel("bridge.status", contains: "Unknown", in: app)
         await expectLabel("bridge.traffic", contains: "Status unavailable", in: app)
         XCTAssertFalse(app.staticTexts["Open to traffic"].exists)
         XCTAssertFalse(app.staticTexts["Traffic stopped"].exists)
+        attachScreenshot("unknown-status-unavailable", in: app)
     }
 
     @MainActor
@@ -90,10 +90,10 @@ final class BridgeTrackerUITests: XCTestCase {
         try await Self.control("reset", scenario: "history-error")
         let app = launchApp()
         defer { app.terminate() }
-        await captureSettledScreen("history-failure", in: app)
 
         await expectLabel("bridge.status", contains: "Down", in: app)
         await expectLabel("bridge.warning", contains: "history", in: app, caseInsensitive: true)
+        attachScreenshot("history-failure-with-current-status", in: app)
         reveal(element("bridge.stats-window", in: app), in: app)
         await expectLabel("bridge.stats-openings", contains: "42", in: app)
         XCTAssertFalse(app.staticTexts["No status changes recorded yet."].exists,
@@ -105,10 +105,10 @@ final class BridgeTrackerUITests: XCTestCase {
         try await Self.control("reset", scenario: "stats-error")
         let app = launchApp()
         defer { app.terminate() }
-        await captureSettledScreen("stats-failure", in: app)
 
         await expectLabel("bridge.status", contains: "Down", in: app)
         await expectLabel("bridge.warning", contains: "stats", in: app, caseInsensitive: true)
+        attachScreenshot("stats-failure-with-current-status", in: app)
         XCTAssertFalse(element("bridge.stats-openings", in: app).exists)
         reveal(element("bridge.history", in: app), in: app)
         XCTAssertTrue(app.staticTexts["Up → Down"].exists)
@@ -120,10 +120,10 @@ final class BridgeTrackerUITests: XCTestCase {
         try await Self.control("reset", scenario: "all-error")
         let app = launchApp()
         defer { app.terminate() }
-        await captureSettledScreen("cold-load-error", in: app)
 
         XCTAssertTrue(app.staticTexts["Couldn’t load"].waitForExistence(timeout: 15),
                       "A first-load HTTP failure must produce a recoverable error screen.")
+        attachScreenshot("cold-load-error", in: app)
         try await refresh(afterSwitchingTo: "down", in: app)
         await expectLabel("bridge.status", contains: "Down", in: app)
         try await refresh(afterSwitchingTo: "all-error", in: app)
@@ -148,12 +148,16 @@ final class BridgeTrackerUITests: XCTestCase {
         try await Self.control("reset", scenario: "down")
         let app = launchApp()
         defer { app.terminate() }
-        await captureSettledScreen("live-activity-initial", in: app)
 
         await expectLabel("bridge.status", contains: "Down", in: app)
         let toggle = element("bridge.live-activity", in: app)
         XCTAssertTrue(toggle.waitForExistence(timeout: 10))
         reveal(toggle, in: app)
+        let ready = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "enabled == true"), object: toggle
+        )
+        let readiness = await XCTWaiter.fulfillment(of: [ready], timeout: 15)
+        XCTAssertEqual(readiness, .completed, "Live Activity start must wait for the initial refresh to finish.")
         toggle.tap()
 
         let started = XCTNSPredicateExpectation(
@@ -164,10 +168,10 @@ final class BridgeTrackerUITests: XCTestCase {
         if result != .completed {
             let alert = app.alerts["Couldn’t start Live Activity"]
             if alert.exists {
+                attachScreenshot("live-activity-start-failure", in: app)
                 let reason = alert.staticTexts.allElementsBoundByIndex.map { $0.label }.joined(separator: " ")
                 let normalized = reason.lowercased()
                 if normalized.contains("live activities are turned off")
-                    || normalized.contains("unsupported target")
                     || normalized.contains("not supported on this device") {
                     throw XCTSkip("Simulator Live Activity capability unavailable: " + reason)
                 }
@@ -180,6 +184,7 @@ final class BridgeTrackerUITests: XCTestCase {
 
         toggle.tap()
         await expectLabel("bridge.live-activity", contains: "Track on Lock Screen", in: app)
+        attachScreenshot("live-activity-stopped", in: app)
         // The fixture receives any APNs/activity registration locally. This verifies
         // the app's local start/stop flow; it does not verify remote push delivery.
     }
@@ -239,16 +244,6 @@ final class BridgeTrackerUITests: XCTestCase {
             start.press(forDuration: 0.05, thenDragTo: end)
         }
         XCTAssertTrue(target.exists && target.isHittable, "Expected the requested content to be reachable by scrolling.")
-    }
-
-    @MainActor
-    private func captureSettledScreen(_ name: String, in app: XCUIApplication) async {
-        let ready = app.descendants(matching: .any).matching(NSPredicate(
-            format: "identifier == %@ OR label == %@", "bridge.status", "Couldn’t load"
-        )).firstMatch
-        let settled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true"), object: ready)
-        _ = await XCTWaiter.fulfillment(of: [settled], timeout: 15)
-        attachScreenshot(name, in: app)
     }
 
     @MainActor
