@@ -25,6 +25,11 @@ on:
         required: true
         default: "https://bridge.travis-harper.net"
         type: string
+      simulator_only:
+        description: "Run simulator UI validation only; skips signing and TestFlight"
+        required: true
+        default: false
+        type: boolean
       upload:
         description: "Upload to TestFlight (may notify existing testers); false builds an IPA only"
         required: true
@@ -36,6 +41,7 @@ permissions:
 
 jobs:
   build-and-upload:
+    if: github.event_name != 'workflow_dispatch' || !inputs.simulator_only
     # This repository is public; retain its hosted runner rather than adding
     # it to the private repository runner pool.
     runs-on: macos-latest
@@ -393,3 +399,325 @@ jobs:
           if failures:
               sys.exit('\n'.join(failures))
           PY
+
+  simulator-validation:
+    name: Simulator UI validation
+    if: github.event_name == 'workflow_dispatch' && inputs.simulator_only
+    runs-on: macos-latest
+    timeout-minutes: 20
+    concurrency:
+      group: brickell-ios-simulator-${{ github.ref }}
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Prepare isolated validation workspace
+        run: |
+          set -euo pipefail
+          SIM_WORK_DIR=$(mktemp -d "$RUNNER_TEMP/bridge-simulator-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.XXXXXX")
+          mkdir "$SIM_WORK_DIR/evidence"
+          printf 'SIM_WORK_DIR=%s\n' "$SIM_WORK_DIR" >> "$GITHUB_ENV"
+
+      - name: Select supported Xcode
+        run: |
+          DEVELOPER_DIR=$(python3 <<'PY'
+          import glob
+          import os
+          import subprocess
+          import sys
+
+          candidates = glob.glob('/Applications/Xcode*.app/Contents/Developer')
+          try:
+              current = subprocess.check_output(
+                  ['xcode-select', '-p'], text=True, stderr=subprocess.DEVNULL,
+              ).strip()
+              candidates.append(current)
+          except subprocess.CalledProcessError:
+              pass
+          supported = []
+          for candidate in set(candidates):
+              try:
+                  sdk = subprocess.check_output(
+                      ['xcrun', '--sdk', 'iphoneos', '--show-sdk-version'],
+                      env={**os.environ, 'DEVELOPER_DIR': candidate},
+                      text=True, stderr=subprocess.DEVNULL,
+                  ).strip()
+                  version = tuple(int(part) for part in sdk.split('.'))
+                  if version >= (26,):
+                      supported.append((version, candidate))
+              except (ValueError, subprocess.CalledProcessError):
+                  pass
+          if not supported:
+              sys.exit('No installed Xcode provides the required iOS 26 SDK or later.')
+          print(max(supported)[1])
+          PY
+          )
+          export DEVELOPER_DIR
+          printf 'DEVELOPER_DIR=%s\n' "$DEVELOPER_DIR" >> "$GITHUB_ENV"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Install XcodeGen if needed
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install xcodegen
+          fi
+          xcodegen --version
+
+      - name: Run Foundation client and model regression tests
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          xcrun swiftc -swift-version 5 -parse-as-library \
+            Shared/APIClient.swift Shared/Models.swift Shared/BuildConfig.swift \
+            Tests/APIClientTests.swift -o "$SIM_WORK_DIR/bridge-api-tests" \
+            2>&1 | tee "$SIM_WORK_DIR/evidence/foundation-build.log"
+          "$SIM_WORK_DIR/bridge-api-tests" 2>&1 | tee "$SIM_WORK_DIR/evidence/foundation-tests.log"
+
+      - name: Configure loopback API and simulator-only local networking
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          Path('Shared/BuildConfig.swift').write_text(
+              'import Foundation\n\nenum BuildConfig {\n'
+              '    static let apiBaseURL = "http://localhost:8001"\n}\n'
+          )
+          # Merge a job-only overlay over the real spec, retaining the target's
+          # INFOPLIST_KEY display/launch/Live Activity settings. Use a nested
+          # plist instead of an unsupported nested build-setting key.
+          overlay = {
+              'include': 'project.yml',
+              'targets': {'BridgeTracker': {'info': {
+                  'path': str(Path(os.environ['SIM_WORK_DIR']) / 'Simulator-Info.plist'),
+                  'properties': {'NSAppTransportSecurity': {'NSAllowsLocalNetworking': True}},
+              }}},
+          }
+          Path('simulator-ci.json').write_text(json.dumps(overlay))
+          PY
+          xcodegen generate --spec simulator-ci.json
+          python3 <<'PYSCHEME'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          scheme = Path('BridgeTracker.xcodeproj/xcshareddata/xcschemes/BridgeTracker.xcscheme')
+          targets = ET.parse(scheme).findall('./TestAction/Testables/TestableReference/BuildableReference')
+          assert any(target.get('BlueprintName') == 'BridgeTrackerUITests' for target in targets), (
+              'The shared BridgeTracker scheme does not include BridgeTrackerUITests.'
+          )
+          PYSCHEME
+
+      - name: Select and boot an owned simulator
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          xcrun simctl list runtimes --json > "$SIM_WORK_DIR/evidence/runtimes.json"
+          xcrun simctl list devicetypes --json > "$SIM_WORK_DIR/evidence/device-types.json"
+          python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          directory = Path(os.environ['SIM_WORK_DIR'])
+          runtimes = json.loads((directory / 'evidence/runtimes.json').read_text())['runtimes']
+          devices = json.loads((directory / 'evidence/device-types.json').read_text())['devicetypes']
+          def version(runtime):
+              return tuple(int(part) for part in runtime['version'].split('.'))
+          runtimes = sorted(
+              (runtime for runtime in runtimes
+               if runtime.get('isAvailable') and '.iOS-' in runtime['identifier']
+               and version(runtime) >= (26,)),
+              key=version, reverse=True,
+          )
+          selection = None
+          for runtime in runtimes:
+              parts = (*version(runtime), 0, 0)
+              encoded = (parts[0] << 16) | (parts[1] << 8) | parts[2]
+              compatible = [
+                  device for device in devices
+                  if device.get('productFamily') == 'iPhone'
+                  and device.get('minRuntimeVersion', 0) <= encoded
+                  <= device.get('maxRuntimeVersion', 0xFFFFFFFF)
+              ]
+              if compatible:
+                  device = sorted(
+                      compatible, key=lambda item: (item.get('minRuntimeVersion', 0), item['identifier']),
+                  )[-1]
+                  selection = {'runtime': runtime['identifier'], 'deviceType': device['identifier'],
+                               'runtimeVersion': runtime['version'], 'deviceName': device['name']}
+                  break
+          if not selection:
+              raise SystemExit('No available iOS 26+ runtime with a compatible iPhone device type.')
+          (directory / 'evidence/simulator-selection.json').write_text(json.dumps(selection, indent=2))
+          (directory / 'simulator-selection.env').write_text(
+              selection['runtime'] + '\n' + selection['deviceType'] + '\n')
+          PY
+          RUNTIME=$(sed -n '1p' "$SIM_WORK_DIR/simulator-selection.env")
+          DEVICE_TYPE=$(sed -n '2p' "$SIM_WORK_DIR/simulator-selection.env")
+          SIMULATOR_ID=$(xcrun simctl create \
+            "Brickell-CI-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" "$DEVICE_TYPE" "$RUNTIME")
+          [[ "$SIMULATOR_ID" =~ ^[A-Fa-f0-9-]{36}$ ]]
+          printf '%s\n' "$SIMULATOR_ID" > "$SIM_WORK_DIR/simulator-id"
+          printf 'SIMULATOR_ID=%s\n' "$SIMULATOR_ID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$SIMULATOR_ID"
+          xcrun simctl bootstatus "$SIMULATOR_ID" -b
+
+      - name: Start the owned loopback fixture
+        run: |
+          set -euo pipefail
+          python3 -u "$GITHUB_WORKSPACE/scripts/ios-ui-fixture.py" --port 8001 \
+            </dev/null > "$SIM_WORK_DIR/evidence/fixture.log" 2>&1 &
+          FIXTURE_PID=$!
+          printf '%s\n' "$FIXTURE_PID" > "$SIM_WORK_DIR/fixture-pid"
+          printf 'FIXTURE_PID=%s\n' "$FIXTURE_PID" >> "$GITHUB_ENV"
+          export FIXTURE_PID
+          python3 <<'PY'
+          import json
+          import os
+          import time
+          import urllib.request
+
+          for _ in range(40):
+              try:
+                  os.kill(int(os.environ['FIXTURE_PID']), 0)
+                  with urllib.request.urlopen('http://127.0.0.1:8001/__control/health', timeout=1) as response:
+                      if response.status == 200 and json.load(response).get('ok') is True:
+                          print('Loopback fixture ready.')
+                          break
+              except (OSError, ValueError):
+                  pass
+              time.sleep(0.25)
+          else:
+              raise SystemExit('The owned loopback fixture did not become ready.')
+          PY
+          kill -0 "$FIXTURE_PID"
+
+      - name: Run app UI tests on the owned simulator
+        timeout-minutes: 12
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          xcodebuild test \
+            -project BridgeTracker.xcodeproj \
+            -scheme BridgeTracker \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -destination-timeout 60 \
+            -derivedDataPath "$SIM_WORK_DIR/DerivedData" \
+            -resultBundlePath "$SIM_WORK_DIR/evidence/TestResults.xcresult" \
+            -parallel-testing-enabled NO \
+            -maximum-concurrent-test-simulator-destinations 1 \
+            -only-testing:BridgeTrackerUITests \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee "$SIM_WORK_DIR/evidence/xcodebuild.log"
+
+      - name: Require a nonempty successful UI test result
+        run: |
+          set -euo pipefail
+          xcrun xcresulttool get test-results summary \
+            --path "$SIM_WORK_DIR/evidence/TestResults.xcresult" \
+            > "$SIM_WORK_DIR/evidence/test-summary.json"
+          python3 <<'PYRESULT'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ['SIM_WORK_DIR']) / 'evidence/test-summary.json'
+          result = json.loads(path.read_text())
+          assert result.get('passedTests', 0) > 0, 'No UI test passed in the result bundle.'
+          assert result.get('failedTests', 0) == 0, 'The result bundle contains failed UI tests.'
+          print(f"Passed UI tests: {result['passedTests']}")
+          PYRESULT
+
+      - name: Collect final fixture and built-app evidence
+        if: always() && env.SIM_WORK_DIR != ''
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import plistlib
+          import urllib.request
+
+          directory = Path(os.environ['SIM_WORK_DIR'])
+          evidence = directory / 'evidence'
+          try:
+              with urllib.request.urlopen('http://127.0.0.1:8001/__control/requests', timeout=2) as response:
+                  audit = json.load(response)
+          except (OSError, ValueError) as error:
+              audit = {'unavailable': str(error)}
+          (evidence / 'fixture-requests.json').write_text(json.dumps(audit, indent=2))
+          info = directory / 'DerivedData/Build/Products/Debug-iphonesimulator/BridgeTracker.app/Info.plist'
+          if info.exists():
+              data = plistlib.loads(info.read_bytes())
+              summary = {key: data.get(key) for key in (
+                  'CFBundleIdentifier', 'CFBundleDisplayName', 'UILaunchScreen',
+                  'NSSupportsLiveActivities', 'NSSupportsLiveActivitiesFrequentUpdates',
+                  'UIApplicationSceneManifest', 'ITSAppUsesNonExemptEncryption', 'NSAppTransportSecurity',
+              )}
+              (evidence / 'app-info.json').write_text(json.dumps(summary, indent=2))
+              assert data.get('NSAppTransportSecurity', {}).get('NSAllowsLocalNetworking') is True
+              assert data.get('CFBundleDisplayName') == 'Brickell Bridge'
+              assert data.get('NSSupportsLiveActivities') is True
+              assert data.get('ITSAppUsesNonExemptEncryption') is False
+              assert 'UILaunchScreen' in data and 'UIApplicationSceneManifest' in data
+          PY
+
+      - name: Remove only the job's simulator and fixture process
+        if: always() && env.SIM_WORK_DIR != ''
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import os
+          from pathlib import Path
+          import re
+          import signal
+          import subprocess
+
+          directory = Path(os.environ['SIM_WORK_DIR'])
+          if (directory.parent.resolve() != Path(os.environ['RUNNER_TEMP']).resolve()
+                  or not directory.name.startswith('bridge-simulator-')):
+              raise SystemExit('Refusing cleanup outside the owned simulator workspace.')
+          failures = []
+          pid_file = directory / 'fixture-pid'
+          if pid_file.exists():
+              pid = int(pid_file.read_text())
+              command = subprocess.run(
+                  ['ps', '-p', str(pid), '-o', 'command='], text=True, capture_output=True,
+              ).stdout
+              expected = str(Path(os.environ['GITHUB_WORKSPACE']) / 'scripts/ios-ui-fixture.py')
+              if expected in command and '--port 8001' in command:
+                  try:
+                      os.kill(pid, signal.SIGTERM)
+                  except ProcessLookupError:
+                      pass
+          simulator_file = directory / 'simulator-id'
+          if simulator_file.exists():
+              simulator = simulator_file.read_text().strip()
+              if not re.fullmatch(r'[A-Fa-f0-9-]{36}', simulator):
+                  raise SystemExit('Invalid owned simulator ID.')
+              subprocess.run(['xcrun', 'simctl', 'shutdown', simulator], check=False)
+              if subprocess.run(['xcrun', 'simctl', 'delete', simulator]).returncode:
+                  failures.append('Could not delete the owned simulator.')
+          if failures:
+              raise SystemExit('\n'.join(failures))
+          PY
+
+      - name: Preserve simulator validation evidence
+        if: always() && env.SIM_WORK_DIR != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: Brickell-Simulator-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.SIM_WORK_DIR }}/evidence/
+          if-no-files-found: warn
+          retention-days: 7

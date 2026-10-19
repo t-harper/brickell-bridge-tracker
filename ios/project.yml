@@ -85,3 +85,26 @@ targets:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: "Apple Distribution"
           PROVISIONING_PROFILE_SPECIFIER: "Bridge Tracker Widget AppStore"
+
+  BridgeTrackerUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: BridgeTracker
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: net.travis-harper.bridgetracker.uitests
+        TEST_TARGET_NAME: BridgeTracker
+
+schemes:
+  BridgeTracker:
+    build:
+      targets:
+        BridgeTracker: all
+        BridgeTrackerUITests: [test]
+    test:
+      targets:
+        - name: BridgeTrackerUITests
+          parallelizable: false
