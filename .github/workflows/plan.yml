@@ -52,6 +52,9 @@ jobs:
 
       - run: npm test
 
+      - name: Test production deployment guards
+        run: node --test scripts/production-apns-gate.test.mjs scripts/production-plan.test.mjs
+
       # Plan needs the freshly-built zips so source_code_hash diffs are accurate.
       - name: Bundle Lambda artifacts
         run: npm run bundle
@@ -69,6 +72,15 @@ jobs:
       - name: Test Lambda artifact key safety
         run: node --test scripts/lambda-artifact-keys.test.mjs
 
+      - name: Verify production AWS account
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          if [[ "$ACCOUNT_ID" != "831473839640" ]]; then
+            echo "::error::Unexpected AWS account; refusing production Terraform."
+            exit 1
+          fi
+          echo "AWS_ACCOUNT_ID=$ACCOUNT_ID" >> "$GITHUB_ENV"
+
       - name: Terraform init
         working-directory: infra
         run: terraform init -no-color
@@ -84,9 +96,28 @@ jobs:
         env:
           TF_VAR_apns_p8_pem: ${{ secrets.APNS_KEY_P8 }}
         run: |
+          if [[ ! "${TF_VAR_apns_p8_pem:-}" =~ [^[:space:]] ]]; then
+            echo "::error::APNS_KEY_P8 is missing; refusing to remove production APNs configuration."
+            echo "exitcode=1" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          umask 077
           set -o pipefail
-          terraform plan -no-color -lock=false -var-file=envs/prod.tfvars 2>&1 | tee plan.txt
-          echo "exitcode=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+          set +e
+          terraform plan -no-color -lock=false -detailed-exitcode -out=prod.tfplan -var-file=envs/prod.tfvars 2>&1 | tee plan.txt
+          STATUS=${PIPESTATUS[0]}
+          set -e
+          echo "exitcode=$STATUS" >> "$GITHUB_OUTPUT"
+          if [[ "$STATUS" != 0 && "$STATUS" != 2 ]]; then exit 1; fi
+
+      - name: Verify production plan
+        id: verify_plan
+        if: steps.plan.outcome == 'success'
+        working-directory: infra
+        run: |
+          umask 077
+          terraform show -json prod.tfplan > prod-plan.json
+          node ../scripts/verify-production-plan.mjs prod-plan.json
 
       - name: Post plan as PR comment
         env:
@@ -94,7 +125,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           # GitHub comment max is 65536 chars; reserve some for the wrapper.
-          PLAN=$(head -c 60000 infra/plan.txt)
+          PLAN=$(if [[ -f infra/plan.txt ]]; then head -c 60000 infra/plan.txt; else echo "No production plan was generated; a prerequisite failed."; fi)
           STATUS="${{ steps.plan.outputs.exitcode }}"
           {
             echo "## Terraform Plan (\`prod\` workspace)"
@@ -108,5 +139,9 @@ jobs:
           gh pr comment "$PR_NUMBER" --body-file comment.md
 
       - name: Fail job if plan errored
-        if: steps.plan.outputs.exitcode == '1'
+        if: steps.plan.outcome != 'success' || steps.plan.outputs.exitcode == '1' || steps.verify_plan.outcome != 'success'
         run: exit 1
+
+      - name: Remove private production plan files
+        if: always()
+        run: rm -f -- infra/prod.tfplan infra/prod-plan.json infra/plan.txt
