@@ -147,6 +147,39 @@ test('accepts only empty provider-computed artifact tags during replacement', ()
   const result = validate(p); assert.equal(result.status, 1); assert.match(result.stderr, /tags_all/);
 });
 
+for (const field of ['cache_control', 'content_disposition', 'content_encoding', 'content_language',
+  'website_redirect', 'object_lock_legal_hold_status', 'object_lock_mode', 'object_lock_retain_until_date']) {
+  test(`accepts only the observed absent ${field} replacement default`, () => {
+    for (const [label, before, after, unknown, actions, exit] of [
+      ['absent replacement', '', null, false, ['delete', 'create'], 0],
+      ['create-before-delete replacement', '', null, false, ['create', 'delete'], 0],
+      ['nonempty removal', 'retained-setting', null, false, ['delete', 'create'], 1],
+      ['nonempty introduction', '', 'new-setting', false, ['delete', 'create'], 1],
+      ['whitespace removal', ' ', null, false, ['delete', 'create'], 1],
+      ['unknown value', '', null, true, ['delete', 'create'], 1],
+      ['in-place change', '', null, false, ['update'], 1],
+    ]) {
+      const p = plan(); const change = p.resource_changes[2].change;
+      change.before[field] = before; change.after[field] = after;
+      change.after_unknown[field] = unknown; change.actions = actions;
+      const result = validate(p);
+      assert.equal(result.status, exit, `${label}: ${result.stdout} ${result.stderr}`);
+      if (exit !== 0) assert.match(result.stderr, new RegExp(field));
+    }
+    const configured = plan();
+    configured.configuration.root_module.resources[0].expressions[field] = { constant_value: 'nonempty-setting' };
+    configured.resource_changes[2].change.before[field] = 'nonempty-setting';
+    configured.resource_changes[2].change.after[field] = 'nonempty-setting';
+    const result = validate(configured); assert.equal(result.status, 1); assert.match(result.stderr, /artifact configuration/);
+  });
+}
+
+test('does not normalize an unlisted optional artifact field', () => {
+  const p = plan(); const change = p.resource_changes[2].change;
+  change.before.unreviewed_option = ''; change.after.unreviewed_option = null;
+  const result = validate(p); assert.equal(result.status, 1); assert.match(result.stderr, /unreviewed_option/);
+});
+
 test('fails closed on malformed JSON', () => {
   const result = validate('{'); assert.equal(result.status, 1); assert.match(result.stderr, /JSON/);
 });

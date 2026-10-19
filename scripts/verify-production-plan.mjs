@@ -12,6 +12,11 @@ const codeFields = new Set(['s3_key', 'source_code_hash', 'last_modified', 'code
 const artifactComputed = new Set(['arn', 'id', 'acl', 'bucket_key_enabled', 'checksum_crc32',
   'checksum_crc32c', 'checksum_crc64nvme', 'checksum_sha1', 'checksum_sha256', 'content_type',
   'kms_key_id', 'server_side_encryption', 'storage_class', 'version_id']);
+// AWS provider state uses empty strings for these absent optional headers/locks;
+// a replacement with no corresponding configuration expresses absence as null.
+const absentArtifactDefaults = new Set(['cache_control', 'content_disposition', 'content_encoding',
+  'content_language', 'website_redirect', 'object_lock_legal_hold_status', 'object_lock_mode',
+  'object_lock_retain_until_date']);
 function reject(message) { throw new Error(message); }
 function requireKnown(change, field, expected, label = field) {
   if (hasUnknown(change.after_unknown?.[field]) || !isDeepStrictEqual(change.after?.[field], expected)) reject(`Unsafe ${label}`);
@@ -54,6 +59,8 @@ function validateArtifact(resource, name, plan) {
     if (artifactComputed.has(field) && c.after_unknown?.[field] === true && c.after[field] == null) continue;
     // Provider defaults use null and empty maps interchangeably on replacement.
     const before = c.before?.[field]; const after = c.after[field];
+    if (absentArtifactDefaults.has(field) && c.actions.includes('delete') && c.actions.includes('create')
+      && before === '' && after === null && !hasUnknown(c.after_unknown?.[field])) continue;
     const emptyMap = value => value == null || (typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0);
     if (field === 'tags_all' && emptyMap(before) && after == null && c.after_unknown?.[field] === true) continue;
     if (['tags', 'tags_all', 'metadata'].includes(field) && emptyMap(before) && emptyMap(after) && !hasUnknown(c.after_unknown?.[field])) continue;
