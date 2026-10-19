@@ -22,6 +22,7 @@ env:
 
 jobs:
   deploy:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -52,6 +53,9 @@ jobs:
 
       - run: npm test
 
+      - name: Test production deployment guards
+        run: node --test scripts/production-apns-gate.test.mjs scripts/production-plan.test.mjs
+
       - name: Bundle Lambda artifacts
         run: npm run bundle
 
@@ -71,6 +75,15 @@ jobs:
       - name: Test Lambda artifact key safety
         run: node --test scripts/lambda-artifact-keys.test.mjs
 
+      - name: Verify production AWS account
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          if [[ "$ACCOUNT_ID" != "831473839640" ]]; then
+            echo "::error::Unexpected AWS account; refusing production Terraform."
+            exit 1
+          fi
+          echo "AWS_ACCOUNT_ID=$ACCOUNT_ID" >> "$GITHUB_ENV"
+
       - name: Terraform init
         working-directory: infra
         run: terraform init -no-color
@@ -79,13 +92,39 @@ jobs:
         working-directory: infra
         run: terraform workspace select prod
 
+      - name: Terraform plan
+        working-directory: infra
+        env:
+          TF_VAR_apns_p8_pem: ${{ secrets.APNS_KEY_P8 }}
+        run: |
+          if [[ ! "${TF_VAR_apns_p8_pem:-}" =~ [^[:space:]] ]]; then
+            echo "::error::APNS_KEY_P8 is missing; refusing to remove production APNs configuration."
+            echo "exitcode=1" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          umask 077
+          terraform plan -no-color -out=prod.tfplan -var-file=envs/prod.tfvars
+
+      - name: Verify production plan
+        working-directory: infra
+        run: |
+          umask 077
+          terraform show -json prod.tfplan > prod-plan.json
+          node ../scripts/verify-production-plan.mjs prod-plan.json
+
       - name: Terraform apply
         working-directory: infra
         env:
           # .p8 contents land in SSM (SecureString) and the Lambda only needs
           # the SSM path, so the key value never appears in build output.
           TF_VAR_apns_p8_pem: ${{ secrets.APNS_KEY_P8 }}
-        run: terraform apply -auto-approve -no-color -var-file=envs/prod.tfvars
+        run: |
+          if [[ ! "${TF_VAR_apns_p8_pem:-}" =~ [^[:space:]] ]]; then
+            echo "::error::APNS_KEY_P8 is missing; refusing to remove production APNs configuration."
+            echo "exitcode=1" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          terraform apply -no-color prod.tfplan
 
       - name: Sync frontend to S3
         working-directory: infra
@@ -98,3 +137,7 @@ jobs:
         run: |
           DIST_ID=$(terraform output -raw cloudfront_distribution_id)
           aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths '/*'
+
+      - name: Remove private production plan files
+        if: always()
+        run: rm -f -- infra/prod.tfplan infra/prod-plan.json infra/plan.txt
