@@ -69,6 +69,101 @@ foreground. Remote push updates require:
 The backend only pushes on **status-change events** (not every poll) to stay well under
 APNs Live Activity budget limits.
 
+## Simulator UI validation
+
+Run the existing workflow in simulator-only mode to validate the app without
+signing assets or a TestFlight upload:
+
+```sh
+gh workflow run ios-testflight.yml --ref <reviewed-branch> \
+  -f simulator_only=true -f upload=false
+```
+
+This mode creates a disposable iPhone simulator on the hosted Mac. It temporarily
+points the app at a loopback fixture API and allows local networking only in that
+runner's generated project. Device and activity registration requests stay local;
+the fixture never forwards requests. The committed API URL remains unchanged.
+
+The UI suite exercises status, map availability, stats, history, refresh, empty
+history, unknown status, partial failures, and recovery. A separate capability
+check exercises local Live Activity start/stop when the simulator supports it.
+Logs, request audit, screenshots in the XCTest result bundle, and app metadata are
+retained for seven days. Simulator checks do not establish physical-device
+installation, push delivery, or lock-screen behavior on the tester's iPhone.
+
+For local UI work, use the same fixture with a temporary local BuildConfig URL:
+`python3 scripts/ios-ui-fixture.py --port 8001`. Regenerate the Xcode project and run
+the `BridgeTrackerUITests` target using the shared `BridgeTracker` scheme. Restore
+the local API URL after the test; use the workflow's generated local-networking
+Info.plist overlay if App Transport Security blocks plain HTTP.
+
+## TestFlight builds and access
+
+The workflow runs Foundation regression checks for the mobile API client before
+archiving. To run them locally on the Mac:
+
+```sh
+cd ios
+xcrun swiftc -swift-version 5 -parse-as-library \
+  Shared/APIClient.swift Shared/Models.swift Shared/BuildConfig.swift \
+  Tests/APIClientTests.swift -o /tmp/bridge-api-tests
+/tmp/bridge-api-tests
+```
+
+The `iOS to TestFlight` workflow uses the existing GitHub-hosted `macos-latest`
+runner for this public repository. It does not require the local MacBook or a new
+self-hosted registration. It supports a signed build without distribution:
+
+```sh
+gh workflow run ios-testflight.yml --ref <reviewed-branch> \
+  -f api_base_url=https://bridge.travis-harper.net -f upload=false
+```
+
+This archives and exports with the existing manual signing certificate and both
+provisioning profiles. The IPA is retained as a workflow artifact for seven days.
+It cannot be installed directly: this is an App Store build, and TestFlight still
+requires an upload. This mode makes no App Store Connect requests and sends no
+tester notifications.
+
+The app includes `PrivacyInfo.xcprivacy` for its own `UserDefaults` access (approved
+reason `CA92.1`). Verify the manifest appears inside the exported app when reviewing
+an archive. The app and widget keep their existing bundle IDs and entitlements.
+
+After reviewing the build, explicitly request an upload:
+
+```sh
+gh workflow run ios-testflight.yml --ref <reviewed-branch> \
+  -f api_base_url=https://bridge.travis-harper.net -f upload=true
+```
+
+An upload first checks access to the configured Apple app and verifies the bundle
+ID. `FORBIDDEN.REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED` stops the run before archive:
+the Account Holder must review the notice in [Apple Developer](https://developer.apple.com/account/)
+or [App Store Connect Business](https://appstoreconnect.apple.com/business).
+Agreement acceptance may take time to appear in the API. This error alone does not
+identify the agreement or establish that membership needs renewal. Do not rotate
+credentials or recreate signing assets to work around it.
+
+Qualifying pushes to `main` still upload automatically. A merge also triggers the
+repository's production deployment workflow, so review that consequence separately.
+The build number increases with each workflow run, including simulator-only and
+build-only runs.
+
+After upload, check [the app's TestFlight builds](https://appstoreconnect.apple.com/apps/6772673772/testflight/ios):
+
+1. Wait for processing and verify build status, compliance, and expiration. Builds
+   have a 90-day testing lifetime; an expired build needs a new upload.
+2. Verify the tester remains in the intended group and has app access. Existing
+   internal groups need automatic distribution enabled or an explicit **Add Builds**.
+3. External groups need **Add Builds** and any required beta review before testing.
+   Starting testing or notifying testers can send notifications. Uploads may also
+   notify existing internal groups with automatic distribution.
+4. Verify the tester sees the replacement build in TestFlight and can install it.
+   Successful upload alone does not prove distribution or installation.
+
+See Apple's [internal tester guide](https://developer.apple.com/help/app-store-connect/test-a-beta-version/add-internal-testers/)
+and [build status reference](https://developer.apple.com/help/app-store-connect/reference/app-uploads/app-build-statuses/).
+
 ## Project layout
 
 ```

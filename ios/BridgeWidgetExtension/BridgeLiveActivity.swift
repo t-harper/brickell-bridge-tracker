@@ -35,9 +35,7 @@ struct BridgeLiveActivity: Widget {
                     let now = Date()
                     VStack(spacing: 2) {
                         HStack {
-                            Text(context.state.status.isTrafficStopped
-                                 ? "Traffic stopped"
-                                 : "Open to traffic")
+                            Text(context.state.status.trafficDescription)
                                 .font(.callout.bold())
                             Spacer()
                         }
@@ -109,7 +107,7 @@ struct LockScreenLiveActivityView: View {
                     .font(.title)
                     .foregroundStyle(color(for: context.state.status))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(context.state.status.isTrafficStopped ? "Traffic stopped" : "Open to traffic")
+                    Text(context.state.status.trafficDescription)
                         .font(.title3.bold())
                     HStack(spacing: 4) {
                         Text(durationLabel(context.state, now: now))

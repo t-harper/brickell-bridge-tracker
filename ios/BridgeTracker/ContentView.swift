@@ -11,6 +11,22 @@ struct ContentView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     if let state = store.state {
+                        if let message = store.errorMessage {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Label("Couldn’t refresh all data", systemImage: "exclamationmark.triangle")
+                                    .font(.headline)
+                                    .foregroundStyle(.orange)
+                                Text(message).font(.subheadline)
+                                Text("Last loaded information may be out of date. Try refreshing again.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding()
+                            .background(.orange.opacity(0.1), in: .rect(cornerRadius: 14))
+                            .accessibilityElement(children: .combine)
+                            .accessibilityIdentifier("bridge.warning")
+                        }
                         StatusCard(state: state)
                         liveActivityButton
                         if state.metadata.lat != nil, state.metadata.lon != nil {
@@ -19,7 +35,9 @@ struct ContentView: View {
                         if let stats = store.stats {
                             StatsCard(stats: stats)
                         }
-                        HistoryCard(events: store.events)
+                        if let events = store.events {
+                            HistoryCard(events: events)
+                        }
                     } else if let msg = store.errorMessage {
                         ContentUnavailableView(
                             "Couldn’t load",
@@ -43,6 +61,9 @@ struct ContentView: View {
                         Image(systemName: "arrow.clockwise")
                     }
                     .accessibilityLabel("Refresh")
+                    .accessibilityIdentifier("bridge.refresh")
+                    .accessibilityValue(store.isLoading ? "Refreshing" : "Ready")
+                    .disabled(store.isLoading)
                 }
             }
         }
@@ -87,25 +108,33 @@ struct ContentView: View {
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
         .tint(liveActivityRunning ? .red : .accentColor)
+        .accessibilityIdentifier("bridge.live-activity")
+        .disabled(store.isLoading && !liveActivityRunning)
     }
 }
 
 struct StatusCard: View {
     let state: BridgeState
 
-    private var accent: Color { state.status.isTrafficStopped ? .red : .green }
+    private var accent: Color {
+        switch state.status {
+        case .up: return .red
+        case .down: return .green
+        case .unknown: return .gray
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 Label(state.status.label, systemImage: state.status.symbolName)
+                    .accessibilityIdentifier("bridge.status")
                     .font(.largeTitle.bold())
                     .foregroundStyle(accent)
                 Spacer()
             }
-            Text(state.status.isTrafficStopped
-                 ? "Traffic stopped"
-                 : "Open to traffic")
+            Text(state.status.trafficDescription)
+                .accessibilityIdentifier("bridge.traffic")
                 .font(.title3)
                 .foregroundStyle(.secondary)
 
@@ -125,6 +154,7 @@ struct StatusCard: View {
             .font(.subheadline)
 
             Text("Last poll \(Formatting.relative(state.lastPolledAt))")
+                .accessibilityIdentifier("bridge.last-poll")
                 .font(.footnote)
                 .foregroundStyle(.tertiary)
                 .padding(.top, 4)
@@ -150,6 +180,7 @@ struct StatsCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Last \(stats.windowDays) days")
+                .accessibilityIdentifier("bridge.stats-window")
                 .font(.headline)
             Grid(horizontalSpacing: 16, verticalSpacing: 8) {
                 GridRow {
@@ -173,6 +204,7 @@ struct StatsCard: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label).font(.caption).foregroundStyle(.secondary)
             Text(value).font(.title2.bold()).monospacedDigit()
+                .accessibilityIdentifier("bridge.stats-\(label.lowercased().replacingOccurrences(of: " ", with: "-"))")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -183,6 +215,7 @@ struct HistoryCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Recent status changes")
+                .accessibilityIdentifier("bridge.history")
                 .font(.headline)
             if events.isEmpty {
                 Text("No status changes recorded yet.")
@@ -192,7 +225,7 @@ struct HistoryCard: View {
                 ForEach(events.prefix(20)) { event in
                     HStack(spacing: 10) {
                         Image(systemName: event.to.symbolName)
-                            .foregroundStyle(event.to.isTrafficStopped ? .red : .green)
+                            .foregroundStyle(event.to == .up ? .red : event.to == .down ? .green : .gray)
                         VStack(alignment: .leading) {
                             Text("\(event.from.label) → \(event.to.label)")
                                 .font(.subheadline)
