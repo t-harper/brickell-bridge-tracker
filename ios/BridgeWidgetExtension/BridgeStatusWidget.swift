@@ -99,7 +99,7 @@ struct BridgeStatusWidgetView: View {
             Image(systemName: status.symbolName)
                 .font(.system(size: 34))
                 .foregroundStyle(accent)
-            Text(status.isTrafficStopped ? "Traffic stopped" : "Open to traffic")
+            Text(status.trafficDescription)
                 .font(.caption.bold())
                 .lineLimit(2)
             if let state = entry.state {
@@ -124,7 +124,7 @@ struct BridgeStatusWidgetView: View {
                         .font(.largeTitle.bold())
                         .foregroundStyle(accent)
                 }
-                Text(status.isTrafficStopped ? "Traffic stopped" : "Open to traffic")
+                Text(status.trafficDescription)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -157,7 +157,7 @@ struct BridgeStatusWidgetView: View {
         VStack(alignment: .leading) {
             Label("Brickell", systemImage: "road.lanes")
                 .font(.caption2.bold())
-            Text(status.isTrafficStopped ? "Up — traffic stopped" : "Down — open to traffic")
+            Text("\(status.label) — \(status.trafficDescription.lowercased())")
                 .font(.body.bold())
             if let state = entry.state {
                 Text("since \(Formatting.relative(state.statusChangedAt))")

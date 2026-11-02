@@ -36,8 +36,9 @@ struct StartBridgeLiveActivityIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult {
         async let s = APIClient.shared.getStatus()
-        async let st = APIClient.shared.getStats(days: 7)
-        let (state, stats) = try await (s, st)
+        async let st: BridgeStats? = try? APIClient.shared.getStats(days: 7)
+        let state = try await s
+        let stats = await st
         try await LiveActivityController.shared.start(with: state, stats: stats)
         return .result()
     }
