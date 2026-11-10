@@ -1,6 +1,9 @@
 import ActivityKit
 import Foundation
 import UIKit
+#if DEBUG
+import OSLog
+#endif
 
 enum LiveActivityStartError: Error, LocalizedError {
     case notAuthorized
@@ -19,6 +22,10 @@ enum LiveActivityStartError: Error, LocalizedError {
 @MainActor
 final class LiveActivityController {
     static let shared = LiveActivityController()
+
+#if DEBUG
+    private static let logger = Logger(subsystem: "net.travis-harper.bridgetracker", category: "LiveActivity")
+#endif
 
     private var activity: Activity<BridgeActivityAttributes>?
     private var pushTokenObserver: Task<Void, Never>?
@@ -49,9 +56,53 @@ final class LiveActivityController {
             self.activity = act
             watchPushToken(act)
         } catch {
+#if DEBUG
+            Self.logStartFailure(error)
+#endif
             throw LiveActivityStartError.requestFailed(error)
         }
     }
+
+#if DEBUG
+    private static func logStartFailure(_ error: Error) {
+        var current: Error? = error
+        // Bound traversal and record only error identity, never userInfo or tokens.
+        for depth in 0..<4 {
+            guard let candidate = current else { break }
+            let nsError = candidate as NSError
+            let errorType = String(reflecting: type(of: candidate))
+            let authorization = (candidate as? ActivityAuthorizationError)
+                .map(authorizationCase) ?? "none"
+            logger.error("""
+                Activity request failed
+                depth=\(depth, privacy: .public)
+                type=\(errorType, privacy: .public)
+                authorization=\(authorization, privacy: .public)
+                domain=\(nsError.domain, privacy: .public)
+                code=\(nsError.code, privacy: .public)
+                """)
+            current = nsError.userInfo[NSUnderlyingErrorKey] as? Error
+        }
+    }
+
+    private static func authorizationCase(_ error: ActivityAuthorizationError) -> String {
+        switch error {
+        case .attributesTooLarge: return "attributesTooLarge"
+        case .denied: return "denied"
+        case .globalMaximumExceeded: return "globalMaximumExceeded"
+        case .malformedActivityIdentifier: return "malformedActivityIdentifier"
+        case .missingProcessIdentifier: return "missingProcessIdentifier"
+        case .persistenceFailure: return "persistenceFailure"
+        case .reconnectNotPermitted: return "reconnectNotPermitted"
+        case .targetMaximumExceeded: return "targetMaximumExceeded"
+        case .unentitled: return "unentitled"
+        case .unsupported: return "unsupported"
+        case .unsupportedTarget: return "unsupportedTarget"
+        case .visibility: return "visibility"
+        @unknown default: return "unknown"
+        }
+    }
+#endif
 
     func updateIfRunning(with state: BridgeState, stats: BridgeStats? = nil) async {
         guard let act = activity else { return }

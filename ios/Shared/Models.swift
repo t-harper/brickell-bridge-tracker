@@ -22,6 +22,14 @@ public enum BridgeStatus: String, Codable, Sendable, Hashable {
     }
 
     public var isTrafficStopped: Bool { self == .up }
+
+    public var trafficDescription: String {
+        switch self {
+        case .up: return "Traffic stopped"
+        case .down: return "Open to traffic"
+        case .unknown: return "Status unavailable"
+        }
+    }
 }
 
 public struct BridgeMetadata: Codable, Sendable, Hashable {
